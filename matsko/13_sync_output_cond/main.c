@@ -20,6 +20,7 @@ pthread_mutexattr_t mutexattr;
 pthread_mutex_t mutex;
 pthread_cond_t cond;
 bool is_main_printing = true;
+bool is_stop = false;
 
 void cleanUp() {
     if (valid_mutexattr) {
@@ -66,7 +67,7 @@ void initCond(pthread_cond_t *c) {
 }
 
 void childFunc() {
-    for (int i = 0; i < NUM_LINES; i++) {
+    for (int i = 0; i < NUM_LINES && !is_stop; i++) {
         int err = pthread_mutex_lock(&mutex);
         if (err != 0) {
             fprintf(stderr, "Error mutex lock %s\n", strerror(err));
@@ -85,6 +86,7 @@ void childFunc() {
 
         pthread_cond_signal(&cond);
         if (err != 0) {
+            is_stop = true;
             break;
         }
     }
@@ -108,7 +110,7 @@ int main() {
         cleanUp();
         exit(ERROR_THREAD_CREATE);
     }
-    for (int i = 0; i < NUM_LINES; i++) {
+    for (int i = 0; i < NUM_LINES && !is_stop; i++) {
         err = pthread_mutex_lock(&mutex);
         if (err != 0) {
             fprintf(stderr, "Error mutex lock %s\n", strerror(err));
@@ -127,6 +129,7 @@ int main() {
 
         pthread_cond_signal(&cond);
         if (err != 0) {
+            is_stop = true;
             break;
         }
     }
