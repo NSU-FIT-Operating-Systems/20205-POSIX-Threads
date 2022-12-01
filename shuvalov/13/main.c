@@ -48,8 +48,8 @@ void* print_lines(int thread_num) {
         // так как первый поток мог получить ошибку и изменить значение error_occured
         // уже после того, как второй поток проверил условие while.
 
-        while ((mains_turn && thread_num == CHILD_THREAD ||
-                !mains_turn && thread_num != CHILD_THREAD) &&
+        while (((mains_turn && thread_num == CHILD_THREAD) ||
+                (!mains_turn && thread_num != CHILD_THREAD)) &&
                (err == 0 || err == ETIMEDOUT) &&
                !error_occurred) {
             clock_gettime(CLOCK_REALTIME, &timeout);
@@ -103,7 +103,7 @@ int main() {
     }
 
     pthread_t child_thread;
-    err = pthread_create(&child_thread, NULL, (void*) print_lines, (void*) CHILD_THREAD);
+    err = pthread_create(&child_thread, NULL, (void* (*)(void*)) print_lines, (void*) CHILD_THREAD);
     if (err != 0) {
         print_error(err, MAIN_THREAD, "create");
         error_occurred = true;
