@@ -82,9 +82,9 @@ void childFunc() {
         }
         printf("Child printing line %d\n", i + 1);
         is_main_printing = true;
+        pthread_cond_signal(&cond);
         pthread_mutex_unlock(&mutex);
 
-        pthread_cond_signal(&cond);
         if (err != 0) {
             is_stop = true;
             break;
@@ -125,15 +125,14 @@ int main() {
         }
         printf("Parent printing line %d\n", i + 1);
         is_main_printing = false;
+        pthread_cond_signal(&cond);
         pthread_mutex_unlock(&mutex);
 
-        pthread_cond_signal(&cond);
         if (err != 0) {
             is_stop = true;
             break;
         }
     }
-
 
     err = pthread_join(tid, NULL);
     if (err != 0) {
