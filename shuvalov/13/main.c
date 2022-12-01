@@ -13,7 +13,6 @@ pthread_mutex_t mutex;
 pthread_cond_t cond;
 bool mains_turn = true;
 bool error_occurred = false;
-struct timespec timeout;
 
 void print_line(int thread_num, int iteration) {
     if (thread_num == MAIN_THREAD) {
@@ -32,6 +31,7 @@ void print_error(int err, int thread_num, char* function_name) {
 }
 
 void* print_lines(int thread_num) {
+    struct timespec timeout;
     for (int i = 0; i < LINES_NUMBER; i++) {
         if (error_occurred) {
             break;
