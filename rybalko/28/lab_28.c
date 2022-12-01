@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <sys/types.h>
@@ -26,8 +27,7 @@ int socket_fd;
 int largest_fd;
 
 void RestoreTerminal() {
-    write(STDOUT_FILENO, "\033[0m", 4); //restore
-    write(STDOUT_FILENO, "Close connection!\n", 18);
+    write(STDOUT_FILENO, "\033[1;31mClose connection!\033[0m\n", 30);
     if (tcsetattr(tty_fd, TCSANOW, &saved_attr) == -1) {
         write(STDOUT_FILENO, "Error in tcsetattr(3)!\n", 23);
         exit(EXIT_FAILURE);
@@ -81,7 +81,7 @@ int PrintHTTPContents(char* full_url) {
     char url[strlen(full_url)];
     int port = HTTP_PORT;
     ParseFullURL(host, url, &port, full_url);
-    printf("host: %s\nurl: %s\nport: %d\n", host, url, port);
+    printf("\033[4;34mhost:\033[0m %s\n\033[4;34murl:\033[0m %s\n\033[4;34mport:\033[0m %d\n", host, url, port);
 
     char *request_fmt = "GET %s HTTP/1.0\r\n\r\n";
     int request_len = strlen(url) + strlen(request_fmt);
@@ -94,7 +94,7 @@ int PrintHTTPContents(char* full_url) {
         return -2;
     }
 
-    printf("Getting host...\n");
+    printf("\033[;31mGetting host...\033[0m\n");
     struct hostent *server = gethostbyname(host);
     if (server == NULL) {
         perror("Error in gethostbyname(3NSL)!\n");
@@ -106,18 +106,26 @@ int PrintHTTPContents(char* full_url) {
     serv_addr.sin_port = htons(port);
     memcpy(&serv_addr.sin_addr.s_addr, server -> h_addr, server -> h_length);
 
-    printf("Connecting...\n");
+    printf("\033[;33mConnecting...\033[0m\n");
     if (connect(socket_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1) {
         perror("Error in connect(3SOCKET)!\n");
         return -1;
     }
 
-    printf("Sending request...\n");
+    printf("\033[;32mSending request...\033[0m\n");
     int writed_bytes = write(socket_fd, request, strlen(request));
     if (writed_bytes == -1) {
         perror("Error in write(2)!\n");
         return -1;
     }
+
+    struct winsize ws;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+    int delim_size = ws.ws_col;
+    char delim[delim_size + 1];
+    memset(delim, '=', delim_size);
+    delim[delim_size] = '\0';
+    printf("\033[;35m%s\n\n\033[0m", delim);
 
     largest_fd = socket_fd > tty_fd ? socket_fd : tty_fd;
     fcntl(socket_fd, F_SETFL, O_NONBLOCK);
