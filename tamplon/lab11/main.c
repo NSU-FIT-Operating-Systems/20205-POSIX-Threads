@@ -84,6 +84,7 @@ int main() {
 		}
 	}
 	if (pthread_join(thread, NULL) != 0) {
+		destroyMutexes();
 		perror("Error joining thread");
 		return EXIT_FAILURE;
 	}
