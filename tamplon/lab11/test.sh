@@ -1,5 +1,7 @@
 #!/usr/bin/bash
-if test "$#" -ne 3; then
+
+#launches program n times and compares the output with the expected output. This needed to be done because the program is not deterministic
+if [[ $# -ne 4 ]]; then
     echo "usage: <program> <input> <expected result> <number of launches>"
 fi
 program=$1

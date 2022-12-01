@@ -6,13 +6,42 @@
 pthread_mutex_t mutex1, mutex2, startMutex;
 void* threadFunction(void* args) {
 	(void)args;
-	pthread_mutex_lock(&startMutex);
+	if (pthread_mutex_lock(&startMutex) != 0) {
+		perror("pthread_mutex_lock: startMutex");
+		exit(EXIT_FAILURE);
+	}
 	for (int i = 0; i < 10; ++i) {
-		pthread_mutex_lock(&mutex2);
-		printf("%d\n", i);
-		pthread_mutex_unlock(&mutex1);
+		if (pthread_mutex_lock(&mutex2) != 0) {
+			perror("pthread_mutex_lock: mutex2");
+			exit(EXIT_FAILURE);
+		}
+		printf("child: %d\n", i);
+		if (pthread_mutex_unlock(&mutex1) != 0) {
+			perror("pthread_mutex_unlock: mutex1");
+			exit(EXIT_FAILURE);
+		}
+	}
+	if (pthread_mutex_unlock(&mutex2) != 0) {
+		perror("pthread_mutex_unlock: mutex2");
+		exit(EXIT_FAILURE);
+	}
+	if (pthread_mutex_unlock(&startMutex) != 0) {
+		perror("pthread_mutex_unlock: startMutex");
+		exit(EXIT_FAILURE);
 	}
 	pthread_exit(NULL);
+}
+
+void destroyMutexes() {
+	if (pthread_mutex_destroy(&mutex1) != 0) {
+		perror("Error destroying mutex1\n");
+	}
+	if (pthread_mutex_destroy(&mutex2) != 0) {
+		perror("Error destroying mutex2\n");
+	}
+	if (pthread_mutex_destroy(&startMutex) != 0) {
+		perror("Error destroying startMutex\n");
+	}
 }
 
 int main() {
@@ -35,12 +64,29 @@ int main() {
 		perror("Error creating thread");
 		return EXIT_FAILURE;
 	}
-	pthread_mutex_lock(&mutex2);
-	pthread_mutex_unlock(&startMutex);
-	for (int i = 0; i < 10; ++i) {
-		pthread_mutex_lock(&mutex1);
-		printf("%d\n", i);
-		pthread_mutex_unlock(&mutex2);
+	if (pthread_mutex_lock(&mutex2) != 0) {
+		perror("pthread_mutex_lock: mutex2");
+		return EXIT_FAILURE;
 	}
+	if (pthread_mutex_unlock(&startMutex) != 0) {
+		perror("pthread_mutex_unlock: startMutex");
+		return EXIT_FAILURE;
+	}
+	for (int i = 0; i < 10; ++i) {
+		if (pthread_mutex_lock(&mutex1) != 0) {
+			perror("pthread_mutex_lock: mutex1");
+			return EXIT_FAILURE;
+		}
+		printf("parent: %d\n", i);
+		if (pthread_mutex_unlock(&mutex2) != 0) {
+			perror("pthread_mutex_unlock: mutex2");
+			return EXIT_FAILURE;
+		}
+	}
+	if (pthread_join(thread, NULL) != 0) {
+		perror("Error joining thread");
+		return EXIT_FAILURE;
+	}
+	destroyMutexes();
 	pthread_exit(NULL);
 }
