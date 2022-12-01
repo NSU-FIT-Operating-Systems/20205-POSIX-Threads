@@ -66,11 +66,13 @@ void initCond(pthread_cond_t *c) {
     valid_cond = true;
 }
 
-void childFunc() {
+void* childFunc(void* arg) {
     for (int i = 0; i < NUM_LINES && !is_stop; i++) {
         int err = pthread_mutex_lock(&mutex);
         if (err != 0) {
             fprintf(stderr, "Error mutex lock %s\n", strerror(err));
+            is_stop = true;
+            break;
         }
 
         err = 0;
@@ -90,7 +92,7 @@ void childFunc() {
             break;
         }
     }
-    pthread_exit(NULL);
+    pthread_exit((void *)0);
 }
 
 int main() {
@@ -104,7 +106,7 @@ int main() {
     initCond(&cond);
 
     pthread_t tid;
-    int err = pthread_create(&tid, NULL, (void *)childFunc, NULL);
+    int err = pthread_create(&tid, NULL, childFunc, NULL);
     if (err != 0) {
         fprintf(stderr, "Error pthread create %s\n", strerror(err));
         cleanUp();
@@ -114,6 +116,8 @@ int main() {
         err = pthread_mutex_lock(&mutex);
         if (err != 0) {
             fprintf(stderr, "Error mutex lock %s\n", strerror(err));
+            is_stop = true;
+            break;
         }
 
         err = 0;
