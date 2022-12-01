@@ -116,18 +116,21 @@ int main() {
     err = pthread_join(child_thread, (void**) &thread_return);
     if (err != 0) {
         print_error(err, MAIN_THREAD, "join");
+        error_occurred = true;
     }
 
     CLEANUP:
     err = pthread_cond_destroy(&cond);
     if (err != 0) {
         print_error(err, MAIN_THREAD, "cond_destroy");
+        error_occurred = true;
     }
 
     MUTEX_DESTROY:
     err = pthread_mutex_destroy(&mutex);
     if (err != 0) {
         print_error(err, MAIN_THREAD, "mutex_destroy");
+        error_occurred = true;
     }
 
     EXIT:
