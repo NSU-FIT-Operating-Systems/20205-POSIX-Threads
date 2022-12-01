@@ -31,20 +31,18 @@ void sig_handler(int id) {
     if (id == SIGINT) {
         running = 0;    
     }
-    if (id == SIGALRM) {
-        pthread_exit(NULL);
-    }
 }
 
 // function for sorting thread
 void* sort_iteratively(void* arg) {    
     int sort_delay = *((int*)(arg));
-    while (1) {
+    while (running) {
         usleep(sort_delay);
         pthread_mutex_lock(&mutex);
         sort_list(head.next);
         pthread_mutex_unlock(&mutex);
     }
+    pthread_exit(NULL);
 }
 
 int handle_input() {
@@ -117,9 +115,8 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "\nInterrupted.\n");
     }
 
-    printf("Gracefull shutdown:\n- stop sort worker\n");
+    printf("Gracefull shutdown:\n- wait sort worker end\n");
 
-    pthread_kill(sorting_thread, SIGALRM);
     err = pthread_join(sorting_thread, NULL);
     if (err != 0) {
         fprintf(stderr, "Error while joining thread: %s\n", strerror(err));
