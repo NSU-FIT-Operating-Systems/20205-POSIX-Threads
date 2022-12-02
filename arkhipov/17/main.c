@@ -94,7 +94,6 @@ int main(int argc, char* argv[]) {
     sa.sa_handler = sig_handler;
     sigemptyset(&sa.sa_mask);
     sigaction(SIGINT, &sa, NULL);
-    sigaction(SIGALRM, &sa, NULL);
 
     int err = pthread_mutex_init(&mutex, NULL);
     if (err != 0) {
