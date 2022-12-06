@@ -13,7 +13,7 @@ typedef struct MyQueue {
     bool dropped;
 } MyQueue;
 
-void mymsginit(MyQueue* myQueue) {
+void my_msg_init(MyQueue* myQueue) {
     myQueue->queue = create();
     myQueue->dropped = false;
     sem_init(&myQueue->full_sem, 0, 10);
@@ -21,7 +21,7 @@ void mymsginit(MyQueue* myQueue) {
     pthread_mutex_init(&myQueue->mutex, NULL);
 }
 
-void mymsqdrop(MyQueue* myQueue) {
+void my_msg_drop(MyQueue* myQueue) {
     pthread_mutex_lock(&myQueue->mutex);
     myQueue->dropped = true;
     sem_post(&myQueue->empty_sem);
@@ -29,7 +29,7 @@ void mymsqdrop(MyQueue* myQueue) {
     pthread_mutex_unlock(&myQueue->mutex);
 }
 
-void mymsqdestroy(MyQueue* myQueue) {
+void my_msg_destroy(MyQueue* myQueue) {
     destroy(myQueue->queue);
     sem_destroy(&myQueue->full_sem);
     sem_destroy(&myQueue->empty_sem);
@@ -37,7 +37,7 @@ void mymsqdestroy(MyQueue* myQueue) {
     free(myQueue);
 }
 
-int mymsgput(MyQueue* myQueue, char* msg) {
+int my_msg_put(MyQueue* myQueue, char* msg) {
     sem_wait(&myQueue->full_sem);
     pthread_mutex_lock(&myQueue->mutex);
     if (myQueue->dropped) {
@@ -46,7 +46,7 @@ int mymsgput(MyQueue* myQueue, char* msg) {
         return 0;
     }
 
-    int msg_len = strlen(msg);
+    int msg_len = (int)strlen(msg);
     int new_msg_len;
     if (msg_len > 80) {
         new_msg_len = 80;
@@ -66,7 +66,7 @@ int mymsgput(MyQueue* myQueue, char* msg) {
     return msg_len;
 }
 
-int mymsgget(MyQueue* myQueue, char *buf, size_t bufsize) {
+int my_msg_get(MyQueue* myQueue, char *buf, size_t bufsize) {
     sem_wait(&myQueue->empty_sem);
     pthread_mutex_lock(&myQueue->mutex);
     if (myQueue->dropped) {
@@ -81,5 +81,5 @@ int mymsgget(MyQueue* myQueue, char *buf, size_t bufsize) {
 
     sem_post(&myQueue->full_sem);
     pthread_mutex_unlock(&myQueue->mutex);
-    return  strlen(buf);
+    return  (int)strlen(buf);
 }

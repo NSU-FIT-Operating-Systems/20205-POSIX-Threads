@@ -29,7 +29,12 @@ void push(Queue* queue, char* elem) {
     element->value = elem;
     element->next = NULL;
 
-    pthread_mutex_lock(&queue->mutex);
+    int status;
+    if ((status = pthread_mutex_lock(&queue->mutex)) != 0) {
+        printf("error in pthread_mutex_lock() %d", status);
+        return;
+    }
+
     if (queue->head == NULL) {
         queue->head = element;
         queue->tail = element;
@@ -43,7 +48,12 @@ void push(Queue* queue, char* elem) {
 }
 
 char* pop(Queue *queue) {
-    pthread_mutex_lock(&queue->mutex);
+    int status;
+    if ((status = pthread_mutex_lock(&queue->mutex)) != 0) {
+        printf("error in pthread_mutex_lock() %d", status);
+        return NULL;
+    }
+
     Node *head = queue->head;
 
     if (head == NULL) {
