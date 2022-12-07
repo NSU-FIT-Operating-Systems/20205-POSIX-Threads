@@ -5,41 +5,52 @@
 
 pthread_mutexattr_t attr;
 pthread_mutex_t m[3];
+int mut[3];
 
-void destroyMutex(int index) {
+void destroyMutexes(int index) {
     for (int i = 0; i < index; ++i) {
         pthread_mutex_destroy(&m[i]);
     }
 }
 
-void stop(char* errorMsg) {
+void errorMessage(char* errorMsg) {
     perror(errorMsg);
 }
 
 int lockMutex(int index) {
     if (pthread_mutex_lock(&m[index])) {
-        stop("Error lock mutex");
+        errorMessage("Error lock mutex");
         return -1;
     }
+    return 0;
 }
 
 int unlockMutex(int index) {
     if (pthread_mutex_unlock(&m[index])) {
-        stop("Error unlock mutex");
+        errorMessage("Error unlock mutex");
         return -1;
+    }
+    return 0;
+}
+
+void unlockAllThreadMutexes(int num) {
+    for (int i = 0; i < 3; ++i) {
+    	if (mut[i] == num) {
+            unlockMutex(i);
+        }
     }
 }
 
 void initMutexes() {
     pthread_mutexattr_init(&attr);
-    //if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK)) {
-        //perror("Error creating attributes\n");
-        //pthread_exit(NULL);
-    //}
+    if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK)) {
+        perror("Error creating attributes\n");
+        pthread_exit(NULL);
+    }
 
     for (int i = 0; i < 3; ++i) {
         if (pthread_mutex_init(&m[i], &attr)) {
-            destroyMutex(i);
+            destroyMutexes(i);
             perror("Error creating mutex");
             pthread_exit(NULL);
         }
@@ -48,71 +59,95 @@ void initMutexes() {
 
 void* function() {
     int n = 0;
-    int prev_n = n;
     if (lockMutex(1)) {
-            return NULL;
+        return NULL;
+    }
+    else {
+    	mut[1] = 2;
     }
     for (int i = 0; i < 10; ++i) {
+    	pthread_testcancel();
         if (lockMutex(n)) {
             break;
         }
+        else {
+    	    mut[n] = 2;
+    	}
         printf("second - %d\n", i);
         if (unlockMutex((n + 1) % 3)) {
             break;
         }
-        prev_n = n;
+        else {
+    	    mut[(n + 1) % 3] = 0;
+    	}
         n = (n + 2) % 3;
     }
-    for (int i = 0; i < 3; ++i) {
-    	if (unlockMutex(i)) {
-            continue;
-        }
-    }
+    unlockAllThreadMutexes(2);
     return NULL;
 }
 
 void first() {
     int n = 0;
-    int prev_n = n;
     for (int i = 0; i < 10; ++i) {
         printf("first - %d\n", i);
 	if (unlockMutex(n)) {
             break;
         }
+        else {
+    	    mut[n] = 0;
+    	}
         if (lockMutex((n + 1) % 3)) {
             break;
         }
-        prev_n = n;
+        else {
+    	    mut[(n + 1) % 3] = 1;
+    	}
         n = (n + 2) % 3;
     }
-    for (int i = 0; i < 3; ++i) {
-    	if (unlockMutex(i)) {
-            continue;
-        }
-    }
+    unlockAllThreadMutexes(1);
 }
 
 int main(int arc, char** argv) {
     pthread_t thread;
 
     initMutexes();
-    lockMutex(0);
-    lockMutex(2);
-
+    if(lockMutex(0)) {
+    	destroyMutexes(3);
+    	return EXIT_FAILURE;
+    }
+    else {
+    	mut[0] = 1;
+    }
+    if(lockMutex(2)) {
+    	unlockAllThreadMutexes(1);
+    	destroyMutexes(3);
+    	return EXIT_FAILURE;
+    }
+    else {
+    	mut[2] = 1;
+    }
+    
     if (pthread_create(&thread, NULL, function, NULL)) {
-        stop("Error creating thread");
+        errorMessage("Error creating thread");
+        unlockAllThreadMutexes(1);
+        destroyMutexes(3);
+    	return EXIT_FAILURE;
     }
 
     if (sleep(1)) {
-        stop("Sleep was interrupted");
+        pthread_cancel(thread);
+        errorMessage("Sleep was interrupted");
+        unlockAllThreadMutexes(1);
+        destroyMutexes(3);
+    	return EXIT_FAILURE;
     }
 
     first();
 
     if (pthread_join(thread, NULL)) {
-        stop("Error waiting thread");
+        errorMessage("Error waiting thread");
     }
-
-    destroyMutex(3);
+    unlockAllThreadMutexes(1);
+    destroyMutexes(3);
     return EXIT_SUCCESS;
 }
