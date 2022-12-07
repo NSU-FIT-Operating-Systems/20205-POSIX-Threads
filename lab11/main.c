@@ -111,14 +111,14 @@ int main(int arc, char** argv) {
     pthread_t thread;
 
     initMutexes();
-    if(lockMutex(0)) {
+    if (lockMutex(0)) {
     	destroyMutexes(3);
     	return EXIT_FAILURE;
     }
     else {
     	mut[0] = 1;
     }
-    if(lockMutex(2)) {
+    if (lockMutex(2)) {
     	unlockAllThreadMutexes(1);
     	destroyMutexes(3);
     	return EXIT_FAILURE;
