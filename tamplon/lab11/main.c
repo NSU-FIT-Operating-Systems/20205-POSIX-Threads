@@ -52,10 +52,19 @@ int main() {
 	}
 	if (pthread_mutex_init(&mutex1, NULL) != 0) {
 		perror("Error creating mutex");
+		if (pthread_mutex_destroy(&startMutex) != 0) {
+			perror("Error destroying startMutex\n");
+		}
 		return EXIT_FAILURE;
 	}
 	if (pthread_mutex_init(&mutex2, NULL) != 0) {
 		perror("Error creating mutex");
+		if (pthread_mutex_destroy(&mutex1) != 0) {
+			perror("Error destroying mutex1\n");
+		}
+		if (pthread_mutex_destroy(&startMutex) != 0) {
+			perror("Error destroying startMutex\n");
+		}
 		return EXIT_FAILURE;
 	}
 	pthread_mutex_lock(&startMutex);
@@ -66,10 +75,12 @@ int main() {
 	}
 	if (pthread_mutex_lock(&mutex2) != 0) {
 		perror("pthread_mutex_lock: mutex2");
+		destroyMutexes();
 		return EXIT_FAILURE;
 	}
 	if (pthread_mutex_unlock(&startMutex) != 0) {
 		perror("pthread_mutex_unlock: startMutex");
+		destroyMutexes();
 		return EXIT_FAILURE;
 	}
 	for (int i = 0; i < 10; ++i) {
