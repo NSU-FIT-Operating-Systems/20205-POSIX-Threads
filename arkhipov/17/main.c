@@ -29,7 +29,7 @@ int parse_int(char* str) {
 
 void sig_handler(int id) {
     if (id == SIGINT) {
-        running = 0;    
+        running = 0;
     }
 }
 
@@ -82,12 +82,17 @@ int handle_input() {
 int main(int argc, char* argv[]) {
     
     if (argc != 2) {
-        fprintf(stderr, "Specify exact 1 arg: time between sortings (in miliseconds).\n");
+        fprintf(stderr, "Specify exact 1 arg: time between sorting (in microseconds) from 0 to 5000000\n");
         pthread_exit(NULL);
     }
     
     // delay for sort worker (in ms.)
-    int sort_delay = parse_int(argv[1]); 
+    int sort_delay = parse_int(argv[1]);
+
+    if (sort_delay > 5000000 || sort_delay < 0) {
+        fprintf(stderr, "Specify delay from 0 to 5000000\n");
+        pthread_exit(NULL);
+    }
 
     //set interrupt handler 
     struct sigaction sa;
@@ -104,17 +109,18 @@ int main(int argc, char* argv[]) {
     pthread_t sorting_thread;
     err = pthread_create(&sorting_thread, NULL, sort_iteratively, (void*)(&sort_delay));
     if (err != 0) {
-        fprintf(stderr, "main: the function PTHREAD_CREATE(3C) ended with an error: %s\n", strerror(err));
+        fprintf(stderr, "Error while create thread: %s\n", strerror(err));
     }
     
     int status = handle_input();
     if (status == MEM_ERROR) {
-        fprintf(stderr, "Error while alocating new memory in heap\n");
+        fprintf(stderr, "Error while allocating new memory in heap\n");
+        running = 0;
     } else if (status == INTERRUPTED) {
         fprintf(stderr, "\nInterrupted.\n");
     }
 
-    printf("Gracefull shutdown:\n- wait sort worker end\n");
+    printf("Graceful shutdown:\n- wait sort worker end\n");
 
     err = pthread_join(sorting_thread, NULL);
     if (err != 0) {
