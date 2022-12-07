@@ -13,28 +13,29 @@ void semDestroy(int index) {
     }
 }
 
-void stop(char* errorMsg) {
+void errorMessage(char* errorMsg) {
     perror(errorMsg);
 }
 
 int semWait(int index) {
     if (sem_wait(&sem[index])) {
-        stop("Error sem wait");
+        errorMessage("Error sem wait");
         return -1;
     }
+    return 0;
 }
 
 int semPost(int index) {
     if (sem_post(&sem[index])) {
-        stop("Error sem post");
+        errorMessage("Error sem post");
         return -1;
     }
+    return 0;
 }
 
 void* function() {
-    char buf[100];
-    int err;
-    for(int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 10; ++i) {
+        pthread_testcancel();
         if (semWait(1)) {
             break;
         }
@@ -43,16 +44,19 @@ void* function() {
             break;
         }
     }
+    return NULL;
 }
 
-void mainThread() {
-     for(int i = 0; i < 10; ++i) {
+void mainThread(pthread_t thread) {
+     for (int i = 0; i < 10; ++i) {
      	if (semWait(0)) {
+            pthread_cancel(thread);
             break;
         }
         printf("first - %d\n", i);
         
         if (semPost(1)) {
+            pthread_cancel(thread);
             break;
         }
     }
@@ -61,17 +65,26 @@ void mainThread() {
 int main() {
     pthread_t thread;
     
-    sem_init(&sem[0], 1, 1);
-    sem_init(&sem[1], 1, 0);
-
-    if(pthread_create(&thread, NULL, function, NULL)) {
-        stop("pthread_create failed");
+    if (sem_init(&sem[0], 1, 1)) {
+        errorMessage("Error sem init");
+        return EXIT_FAILURE;
+    }
+    if (sem_init(&sem[1], 1, 0)) {
+        semDestroy(1);
+        errorMessage("Error sem init");
+        return EXIT_FAILURE;
     }
 
-    mainThread();
+    if (pthread_create(&thread, NULL, function, NULL)) {
+        errorMessage("pthread_create failed");
+        semDestroy(2);
+        return EXIT_FAILURE;
+    }
 
-    if(pthread_join(thread, NULL)){
-        stop("Error waiting thread");
+    mainThread(thread);
+
+    if (pthread_join(thread, NULL)){
+        errorMessage("Error waiting thread");
     }
     semDestroy(2);
 
