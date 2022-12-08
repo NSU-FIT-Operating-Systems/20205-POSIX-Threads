@@ -39,7 +39,14 @@ void my_msg_destroy(MyQueue* myQueue) {
 
 int my_msg_put(MyQueue* myQueue, char* msg) {
     sem_wait(&myQueue->full_sem);
-    pthread_mutex_lock(&myQueue->mutex);
+
+    int status;
+    if ((status = pthread_mutex_lock(&myQueue->mutex)) != 0) {
+        printf("error in my_msg_get.pthread_mutex_lock. %d", status);
+        sem_post(&myQueue->full_sem);
+        return 0;
+    }
+
     if (myQueue->dropped) {
         sem_post(&myQueue->full_sem);
         pthread_mutex_unlock(&myQueue->mutex);
@@ -68,18 +75,27 @@ int my_msg_put(MyQueue* myQueue, char* msg) {
 
 int my_msg_get(MyQueue* myQueue, char *buf, size_t bufsize) {
     sem_wait(&myQueue->empty_sem);
-    pthread_mutex_lock(&myQueue->mutex);
-    if (myQueue->dropped) {
+
+    int status;
+    if ((status = pthread_mutex_lock(&myQueue->mutex)) != 0) {
+        printf("error in my_msg_get.pthread_mutex_lock. %d", status);
         sem_post(&myQueue->empty_sem);
-        pthread_mutex_unlock(&myQueue->mutex);
         return 0;
     }
 
-    char* tmp = pop(myQueue->queue);
-    tmp[bufsize] = 0;
-    strcpy(buf, tmp);
+    if (!myQueue->dropped) {
+        char* tmp = pop(myQueue->queue);
+        if (tmp != NULL) {
+            tmp[bufsize] = 0;
+            strcpy(buf, tmp);
 
-    sem_post(&myQueue->full_sem);
+            sem_post(&myQueue->full_sem);
+            pthread_mutex_unlock(&myQueue->mutex);
+            return  (int)strlen(buf);
+        }
+    }
+
+    sem_post(&myQueue->empty_sem);
     pthread_mutex_unlock(&myQueue->mutex);
-    return  (int)strlen(buf);
+    return 0;
 }

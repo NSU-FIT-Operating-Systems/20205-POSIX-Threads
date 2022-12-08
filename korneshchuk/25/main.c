@@ -22,7 +22,6 @@ void* producer_routine(void* args) {
         int result = my_msg_put(queue, str);
         free(str);
 
-
         if(result == 0){
             pthread_exit((void*)NULL);
         }

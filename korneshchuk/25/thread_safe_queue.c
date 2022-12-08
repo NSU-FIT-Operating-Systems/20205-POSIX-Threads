@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <pthread.h>
+#include <stdio.h>
 
 typedef struct Node {
     struct Node* next;
@@ -31,7 +32,7 @@ void push(Queue* queue, char* elem) {
 
     int status;
     if ((status = pthread_mutex_lock(&queue->mutex)) != 0) {
-        printf("error in pthread_mutex_lock() %d", status);
+        printf("error in push.pthread_mutex_lock() %d", status);
         return;
     }
 
@@ -50,7 +51,7 @@ void push(Queue* queue, char* elem) {
 char* pop(Queue *queue) {
     int status;
     if ((status = pthread_mutex_lock(&queue->mutex)) != 0) {
-        printf("error in pthread_mutex_lock() %d", status);
+        printf("error in pop.pthread_mutex_lock() %d", status);
         return NULL;
     }
 
