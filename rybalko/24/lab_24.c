@@ -12,6 +12,7 @@
 // [2] - C detail
 // [4] - module
 sem_t workflow_sems[4];
+int running = 1;
 
 void DestroySems() {
     int sems_len = sizeof(workflow_sems) / sizeof(sem_t);
@@ -25,11 +26,11 @@ void DestroySems() {
 
 void SigintHandle() {
     DestroySems();
-    exit(EXIT_SUCCESS);
+    running = 0;
 }
 
 void* CreateA(void* arg) {
-    while (1) {
+    while (running) {
         sleep(1);
         sem_post(&workflow_sems[0]);
         printf("Detail A created!\n");
@@ -38,7 +39,7 @@ void* CreateA(void* arg) {
 }
 
 void* CreateB(void* arg) {
-    while (1) {
+    while (running) {
         sleep(2);
         sem_post(&workflow_sems[1]);
         printf("Detail B created!\n");
@@ -47,7 +48,7 @@ void* CreateB(void* arg) {
 }
 
 void* CreateC(void* arg) {
-    while (1) {
+    while (running) {
         sleep(3);
         sem_post(&workflow_sems[2]);
         printf("Detail C created!\n");
@@ -56,7 +57,7 @@ void* CreateC(void* arg) {
 }
 
 void* CreateModule(void* arg) {
-    while (1) {
+    while (running) {
         sem_wait(&workflow_sems[0]);
         sem_wait(&workflow_sems[1]);
         sem_post(&workflow_sems[3]);
@@ -66,7 +67,7 @@ void* CreateModule(void* arg) {
 }
 
 void* CreateWidget() {
-    while (1) {
+    while (running) {
         printf("====================\n");
         sem_wait(&workflow_sems[3]);
         sem_wait(&workflow_sems[2]);
