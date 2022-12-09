@@ -62,24 +62,18 @@ void* function() {
     if (lockMutex(1)) {
         return NULL;
     }
-    else {
-    	mut[1] = 2;
-    }
+    mut[1] = 2;
     for (int i = 0; i < 10; ++i) {
     	pthread_testcancel();
         if (lockMutex(n)) {
             break;
         }
-        else {
-    	    mut[n] = 2;
-    	}
+    	mut[n] = 2;
         printf("second - %d\n", i);
         if (unlockMutex((n + 1) % 3)) {
             break;
         }
-        else {
-    	    mut[(n + 1) % 3] = 0;
-    	}
+    	mut[(n + 1) % 3] = 0;
         n = (n + 2) % 3;
     }
     unlockAllThreadMutexes(2);
@@ -93,15 +87,11 @@ void first() {
 	if (unlockMutex(n)) {
             break;
         }
-        else {
-    	    mut[n] = 0;
-    	}
+    	mut[n] = 0;
         if (lockMutex((n + 1) % 3)) {
             break;
         }
-        else {
-    	    mut[(n + 1) % 3] = 1;
-    	}
+    	mut[(n + 1) % 3] = 1;
         n = (n + 2) % 3;
     }
     unlockAllThreadMutexes(1);
@@ -111,21 +101,17 @@ int main(int arc, char** argv) {
     pthread_t thread;
 
     initMutexes();
-    if (lockMutex(0)) {
+    if(lockMutex(0)) {
     	destroyMutexes(3);
     	return EXIT_FAILURE;
     }
-    else {
-    	mut[0] = 1;
-    }
-    if (lockMutex(2)) {
+    mut[0] = 1;
+    if(lockMutex(2)) {
     	unlockAllThreadMutexes(1);
     	destroyMutexes(3);
     	return EXIT_FAILURE;
     }
-    else {
-    	mut[2] = 1;
-    }
+    mut[2] = 1;
     
     if (pthread_create(&thread, NULL, function, NULL)) {
         errorMessage("Error creating thread");
@@ -147,7 +133,6 @@ int main(int arc, char** argv) {
     if (pthread_join(thread, NULL)) {
         errorMessage("Error waiting thread");
     }
-    unlockAllThreadMutexes(1);
     destroyMutexes(3);
     return EXIT_SUCCESS;
 }
