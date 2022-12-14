@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <time.h>
 
 // [0] - A detail
 // [1] - B detail
@@ -13,6 +14,7 @@
 // [4] - module
 sem_t workflow_sems[4];
 int running = 1;
+struct timespec ts;
 
 void DestroySems() {
     int sems_len = sizeof(workflow_sems) / sizeof(sem_t);
@@ -58,8 +60,8 @@ void* CreateC(void* arg) {
 
 void* CreateModule(void* arg) {
     while (running) {
-        sem_wait(&workflow_sems[0]);
-        sem_wait(&workflow_sems[1]);
+        while (sem_timedwait(&workflow_sems[0], &ts) == -1 && running) {}
+        while (sem_timedwait(&workflow_sems[1], &ts) == -1 && running) {}
         sem_post(&workflow_sems[3]);
         printf("Module created!\n");
     }
@@ -69,8 +71,8 @@ void* CreateModule(void* arg) {
 void* CreateWidget() {
     while (running) {
         printf("====================\n");
-        sem_wait(&workflow_sems[3]);
-        sem_wait(&workflow_sems[2]);
+        while (sem_timedwait(&workflow_sems[3], &ts) == -1 && running) {}
+        while (sem_timedwait(&workflow_sems[2], &ts) == -1 && running) {}
         printf("Widget created!\n");
         printf("====================\n");
     }
@@ -98,6 +100,8 @@ int main() {
 
     pthread_t workflow_threads[5];
     void* (*func_arr[5])(void*) = {CreateA, CreateB, CreateC, CreateModule, CreateWidget};
+
+    ts.tv_sec += 4;
 
     int err = InitSems();
     if (err != -1) {
