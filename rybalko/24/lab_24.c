@@ -27,8 +27,12 @@ void DestroySems() {
 }
 
 void SigintHandle() {
-    DestroySems();
     running = 0;
+    sem_post(&workflow_sems[0]);
+    sem_post(&workflow_sems[0]);
+    sem_post(&workflow_sems[1]);
+    sem_post(&workflow_sems[2]);
+    DestroySems();
 }
 
 void* CreateA(void* arg) {
@@ -60,8 +64,8 @@ void* CreateC(void* arg) {
 
 void* CreateModule(void* arg) {
     while (running) {
-        while (sem_timedwait(&workflow_sems[0], &ts) == -1 && running) {}
-        while (sem_timedwait(&workflow_sems[1], &ts) == -1 && running) {}
+        sem_wait(&workflow_sems[0]);
+        sem_wait(&workflow_sems[1]);
         sem_post(&workflow_sems[3]);
         printf("Module created!\n");
     }
@@ -71,8 +75,8 @@ void* CreateModule(void* arg) {
 void* CreateWidget() {
     while (running) {
         printf("====================\n");
-        while (sem_timedwait(&workflow_sems[3], &ts) == -1 && running) {}
-        while (sem_timedwait(&workflow_sems[2], &ts) == -1 && running) {}
+        sem_wait(&workflow_sems[3]);
+        sem_wait(&workflow_sems[2]);
         printf("Widget created!\n");
         printf("====================\n");
     }
