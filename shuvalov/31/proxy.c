@@ -285,7 +285,7 @@ int process_clients(struct pollfd* poll_fds, size_t poll_fds_num, struct client*
                 continue;
             }
             if ((poll_fds[client->poll_index].revents & POLLERR) == POLLERR) {
-                log_error("\tPOLLERR");
+                log_debug("\tPOLLERR");
                 close_client(poll_fds, poll_fds_num, clients + i);
                 continue;
             }
