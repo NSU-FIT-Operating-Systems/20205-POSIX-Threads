@@ -110,28 +110,39 @@ void ParseFullURL(char* host, char* path, int* port, char* full_url) {
     }
 }
 
-int ReadFromHost(int host_socket, CacheItem* cacheItem) {
+int ReadFromHost(int host_socket, int client_fd, CacheItem* cache_item) {
     int content_size = BUFSIZ;
     int read_count = 0;
     int read_iter = 1;
-    char** content = &cacheItem->content;
+    int write_err = 0;
+    char** content = &cache_item->content;
     *content = malloc(content_size * sizeof(char));
     if (*content == NULL) {
         return -1;
     }
     while (read_iter > 0) {
         if (content_size <= read_count) {
+            pthread_rwlock_wrlock(&(cache_item->rwlock));
             int new_size = content_size + BUFSIZ;
             if (new_size <= EXP_GROW_UP_LIMIT) {
                 new_size = content_size * 2;
             }
             *content = realloc(*content, new_size * sizeof(char));
             content_size = new_size;
+            pthread_rwlock_unlock(&(cache_item->rwlock));
         }
         read_iter = (int)read(host_socket, *content + read_count, content_size - read_count);
+        if (write_err == 0) {
+            int write_iter = write(client_fd, *content + read_count, read_iter);
+            if (write_iter < 1) {
+                write_err = 1;
+            }
+        }
         read_count += read_iter;
+        pthread_rwlock_wrlock(&(cache_item->rwlock));
+        cache_item->content_size = read_count;
+        pthread_rwlock_unlock(&(cache_item->rwlock));
     }
-    cacheItem->content_size = read_count;
     return read_count;
 }
 
@@ -159,10 +170,10 @@ int ConnectToHost(char* host, int port) {
     return sock;
 }
 
-int WriteToClient(int client_fd, const char* buff, int size) {
+int WriteTo(int fd, const char* buff, int size) {
     int write_size = 0;
     while (write_size != size) {
-        int write_iter = send(client_fd, buff + write_size, size - write_size, 0);
+        int write_iter = (int)write(fd, buff + write_size, size - write_size);
         if (write_iter < 1) {
             return 1;
         }
@@ -172,18 +183,18 @@ int WriteToClient(int client_fd, const char* buff, int size) {
 }
 
 int WriteToClientFromCache(int client_fd, CacheItem* cache_item) {
-    pthread_rwlock_rdlock(&(cache_item->rwlock));
     int write_size = 0;
-    char* buff = cache_item->content;
-    while (write_size != cache_item->content_size || cache_item->status != STATUS_COMPLETED) {
-        int write_iter = send(client_fd, buff + write_size, cache_item->content_size - write_size, 0);
-        if (write_iter < 1) {
+    while (write_size != cache_item->content_size || cache_item->status == STATUS_IN_PROCESS) {
+        if (cache_item->content_size > write_size) {
+            pthread_rwlock_rdlock(&(cache_item->rwlock));
+            int write_iter = write(client_fd, cache_item->content + write_size, cache_item->content_size - write_size);
             pthread_rwlock_unlock(&(cache_item->rwlock));
-            return 1;
+            write_size += write_iter;
+            if (write_iter < 1) {
+                return 1;
+            }
         }
-        write_size += write_iter;
     }
-    pthread_rwlock_unlock(&(cache_item->rwlock));
     return 0;
 }
 
@@ -259,7 +270,7 @@ void* ClientWorker(void* arg) {
                 } else if (host_sock == UNABLE_TO_CREATE_SOCKET) {
                     fprintf(stderr, "Unable to create socket\n");
                 } else {
-                    err = WriteToClient(host_sock, input_buffer, read_bytes);
+                    err = WriteTo(host_sock, input_buffer, read_bytes);
                     if (err != 0) {
                         fprintf(stderr, "Error while send request to host\n");
                         HandleClientDisconnect(client_item, server);
@@ -267,22 +278,14 @@ void* ClientWorker(void* arg) {
                     printf("Send GET request to %s\n", host);
 
                     // read from host
-                    int content_size = ReadFromHost(host_sock, cache_item);
-                    cache_item->status = STATUS_COMPLETED;
                     pthread_rwlock_unlock(&(cache_item->rwlock));
+                    int content_size = ReadFromHost(host_sock, client_fd, cache_item);
+                    close(host_sock);
+                    cache_item->status = STATUS_COMPLETED;
                     if (content_size < 0) {
                         fprintf(stderr, "Error while allocate memory for response\n");
                         HandleClientDisconnect(client_item, server);
                     }
-                    close(host_sock);
-
-                    // write to client
-                    WriteToClientFromCache(client_fd, cache_item);
-                    if (err != 0) {
-                        fprintf(stderr, "Error while write to client\n");
-                        HandleClientDisconnect(client_item, server);
-                    }
-                    printf("Send %s response to client\n", host);
 
                     HandleClientDisconnect(client_item, server);
                 }

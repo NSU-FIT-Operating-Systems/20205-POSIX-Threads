@@ -137,17 +137,17 @@ void LookupAndClean(Cache* cache, long timeout) {
         CacheNode* cursor = prev->next;
         while (cursor != NULL) {
             CacheItem* item = cursor->value;
-            if (time(NULL) - item->last_visited > timeout) {
+            if (time(NULL) - item->last_visited > timeout && item->status != STATUS_IN_PROCESS) {
                 pthread_rwlock_wrlock(&(item->rwlock));
                 prev->next = cursor->next;
                 cache->buckets_size[i]--;
                 DeleteCacheNode(cursor);
                 cursor = prev;
+                deleted_nodes++;
                 pthread_rwlock_unlock(&(item->rwlock));
             }
             prev = cursor;
             cursor = cursor->next;
-            deleted_nodes++;
         }
         pthread_rwlock_unlock(&(cache->buckets[i].value->rwlock));
     }
