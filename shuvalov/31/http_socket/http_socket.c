@@ -29,12 +29,33 @@ int parse_response(struct response* response) {
                               response->prev_buf_len);
 }
 
-int init_clients(struct client* clients, size_t size) {
+int init_clients_members(struct client* clients, size_t size) {
     for (int i = 0; i < size; i++) {
         if (init_client(clients + i) != 0) {
             return -1;
         }
     }
+    return 0;
+}
+
+int init_clients(struct clients* clients, size_t size) {
+    clients->size = size;
+    clients->current_number = 0;
+    clients->members = (struct client*) malloc(sizeof(struct client) * size);
+    if (clients->members == NULL) {
+        return -1;
+    }
+    return init_clients_members(clients->members, size);
+}
+
+int init_servers(struct servers* servers, size_t size) {
+    servers->size = size;
+    servers->current_number = 0;
+    servers->members = (struct server*) malloc(sizeof(struct server) * size);
+    if (servers->members == NULL) {
+        return -1;
+    }
+    init_servers_members(servers->members, size);
     return 0;
 }
 
@@ -64,7 +85,7 @@ void setup_client(struct client* client) {
     client->response = NULL;
 }
 
-void init_servers(struct server* servers, size_t size) {
+void init_servers_members(struct server* servers, size_t size) {
     for (int i = 0; i < size; i++) {
         setup_server(i, servers);
     }
@@ -78,22 +99,38 @@ void setup_server(size_t index, struct server* servers) {
     servers[index].response = NULL;
 }
 
-void free_clients(struct client* clients, size_t clients_num) {
-    for (int i = 0; i < clients_num; i++) {
-        if (clients[i].request.buf != NULL) {
-            free(clients[i].request.buf);
-            free(clients[i].request.headers);
+void free_clients(struct clients* clients) {
+    for (int i = 0; i < clients->size; i++) {
+        if (clients->members[i].request.buf != NULL) {
+            free(clients->members[i].request.buf);
+            free(clients->members[i].request.headers);
         }
     }
-    free(clients);
+    free(clients->members);
 }
 
-int add_fd_to_clients(int fd, size_t poll_index, struct client* clients, size_t clients_size) {
-    for (int i = 0; i < clients_size; i++) {
-        if (clients[i].fd == -1) {
-            clients[i].fd = fd;
-            clients[i].processed = 1;
-            clients[i].poll_index = poll_index;
+void free_servers(struct servers* servers) {
+    free(servers->members);
+}
+
+int add_fd_to_clients(int fd, size_t poll_index, struct clients* clients) {
+    if (clients->current_number == clients->size) {
+        printf("here\n");
+        clients->members = realloc(clients->members, clients->size * 2 * sizeof(struct client));
+        if (clients->members == NULL) {
+            return -1;
+        }
+        if (init_clients_members(clients->members + clients->size, clients->size) != 0) {
+            return -1;
+        }
+        clients->size *= 2;
+    }
+    for (int i = 0; i < clients->size; i++) {
+        if (clients->members[i].fd == -1) {
+            clients->members[i].fd = fd;
+            clients->members[i].processed = 1;
+            clients->members[i].poll_index = poll_index;
+            clients->current_number++;
             return i;
         }
     }
@@ -102,14 +139,23 @@ int add_fd_to_clients(int fd, size_t poll_index, struct client* clients, size_t 
 
 int add_fd_to_servers(int fd, struct sockaddr_in serv_addr,
                       size_t poll_index, struct request* request,
-                      struct server* servers, size_t servers_size) {
-    for (int i = 0; i < servers_size; i++) {
-        if (servers[i].fd == -1) {
-            servers[i].fd = fd;
-            servers[i].processed = 1;
-            servers[i].serv_addr = serv_addr;
-            servers[i].poll_index = poll_index;
-            servers[i].request = request;
+                      struct servers* servers) {
+    if (servers->current_number == servers->size) {
+        servers->members = realloc(servers->members, servers->size * 2 * sizeof(struct server));
+        if (servers->members == NULL) {
+            return -1;
+        }
+        init_servers_members(servers->members + servers->size, servers->size);
+        servers->size *= 2;
+    }
+    for (int i = 0; i < servers->size; i++) {
+        if (servers->members[i].fd == -1) {
+            servers->members[i].fd = fd;
+            servers->members[i].processed = 1;
+            servers->members[i].serv_addr = serv_addr;
+            servers->members[i].poll_index = poll_index;
+            servers->members[i].request = request;
+            servers->current_number++;
             return i;
         }
     }

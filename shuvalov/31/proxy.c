@@ -35,11 +35,43 @@ struct cache cache;
 
 extern int errno;
 
-int add_fd_to_poll(int fd, short events, struct pollfd* poll_fds, size_t poll_fds_num) {
-    for (int i = 0; i < poll_fds_num; i++) {
-        if (poll_fds[i].fd == -1) {
-            poll_fds[i].fd = fd;
-            poll_fds[i].events = events;
+struct poll_fds {
+    struct pollfd* members;
+    size_t size;
+    size_t current_number;
+};
+
+void init_poll_fds_members(struct pollfd* poll_fds, size_t size) {
+    for (size_t i = 0; i < size; i++) {
+        poll_fds[i].fd = -1;
+    }
+}
+
+int init_poll_fds(struct poll_fds* poll_fds, size_t size) {
+    poll_fds->size = size;
+    poll_fds->current_number = 0;
+    poll_fds->members = (struct pollfd*) malloc(sizeof(struct pollfd) * size);
+    if (poll_fds->members == NULL) {
+        return -1;
+    }
+    init_poll_fds_members(poll_fds->members, size);
+    return 0;
+}
+
+int add_fd_to_poll(int fd, short events, struct poll_fds* poll_fds) {
+    if (poll_fds->current_number == poll_fds->size) {
+        poll_fds->members = realloc(poll_fds->members, poll_fds->size * 2 * sizeof(struct pollfd));
+        if (poll_fds->members == NULL) {
+            return -1;
+        }
+        init_poll_fds_members(poll_fds->members + poll_fds->size, poll_fds->size);
+        poll_fds->size *= 2;
+    }
+    for (int i = 0; i < poll_fds->size; i++) {
+        if (poll_fds->members[i].fd == -1) {
+            poll_fds->members[i].fd = fd;
+            poll_fds->members[i].events = events;
+            poll_fds->current_number++;
             return i;
         }
     }
@@ -107,9 +139,9 @@ void close_server(int fd, struct pollfd* poll_fds, size_t poll_fds_num, struct s
     setup_server(server_index, servers);
 }
 
-int receive_from_client(struct client* client, size_t client_index, struct pollfd* poll_fds, size_t poll_fds_num,
+int receive_from_client(struct client* client, size_t client_index, struct poll_fds* poll_fds, size_t poll_fds_num,
                         struct client* clients,
-                        struct server* servers, size_t servers_size) {
+                        struct servers* servers) {
     ssize_t return_value;
     int parse_result;
     while ((return_value = read(client->fd,
@@ -119,13 +151,13 @@ int receive_from_client(struct client* client, size_t client_index, struct pollf
     log_debug("\tClient read");
     if (return_value < 0) {
         log_error("read from client: %s", strerror(errno));
-        close_client(poll_fds, poll_fds_num, clients + client_index);
+        close_client(poll_fds->members, poll_fds_num, clients + client_index);
         return 1;
     } else {
         client->request.prev_buf_len = client->request.buf_len;
         client->request.buf_len += return_value;
         if (client->request.buf_len == 0) {
-            close_client(poll_fds, poll_fds_num, clients + client_index);
+            close_client(poll_fds->members, poll_fds_num, clients + client_index);
             return 0;
         }
         log_debug("\tprev buf len: %zu, buf len: %zu", client->request.prev_buf_len, client->request.buf_len);
@@ -133,7 +165,7 @@ int receive_from_client(struct client* client, size_t client_index, struct pollf
         parse_result = parse_request(&client->request);
         if (parse_result == -1) {
             log_error("request is too long");
-            close_client(poll_fds, poll_fds_num, clients + client_index);
+            close_client(poll_fds->members, poll_fds_num, clients + client_index);
             return 1;
         }
         if (parse_result == 2) {
@@ -142,20 +174,20 @@ int receive_from_client(struct client* client, size_t client_index, struct pollf
         }
         if (client->request.buf_len == client->request.buf_size) {
             log_error("request is too long (%zu bytes)", client->request.buf_len);
-            close_client(poll_fds, poll_fds_num, clients + client_index);
+            close_client(poll_fds->members, poll_fds_num, clients + client_index);
             return 1;
         }
         if (strncmp("GET", client->request.method, client->request.method_len) != 0) {
             log_info("Method %.*s is not implemented",
                      (int) client->request.method_len, client->request.method);
-            close_client(poll_fds, poll_fds_num, clients + client_index);
+            close_client(poll_fds->members, poll_fds_num, clients + client_index);
             return 1;
         }
         char* url = NULL;
         return_value = buffer_to_string(clients->request.path, clients->request.path_len, &url);
         if (return_value != 0) {
             log_error("buffer_to_string failed");
-            close_client(poll_fds, poll_fds_num, clients + client_index);
+            close_client(poll_fds->members, poll_fds_num, clients + client_index);
             return 1;
         }
         struct cache_node* cache_node = get(cache, url);
@@ -163,9 +195,9 @@ int receive_from_client(struct client* client, size_t client_index, struct pollf
             cache_node->response->subscribers[cache_node->response->subscribers_count++] = client;
             client->response = cache_node->response;
             if (cache_node->response->buf_len > 0) {
-                poll_fds[client->poll_index].events = POLLOUT;
+                poll_fds->members[client->poll_index].events = POLLOUT;
             } else {
-                poll_fds[client->poll_index].events = 0;
+                poll_fds->members[client->poll_index].events = 0;
             }
             log_debug("\tSubscribe to cache");
             free(url);
@@ -183,7 +215,7 @@ int receive_from_client(struct client* client, size_t client_index, struct pollf
         char* ip = (char*) malloc(sizeof(char) * 100);
         if (ip == NULL) {
             log_error("malloc failed: %s", strerror(errno));
-            close_client(poll_fds, poll_fds_num, clients + client_index);
+            close_client(poll_fds->members, poll_fds_num, clients + client_index);
             free(url);
             return 1;
         }
@@ -192,7 +224,7 @@ int receive_from_client(struct client* client, size_t client_index, struct pollf
         assert(ip != NULL);
         if (return_value != 0) {
             log_error("hostname_to_ip failed");
-            close_client(poll_fds, poll_fds_num, clients + client_index);
+            close_client(poll_fds->members, poll_fds_num, clients + client_index);
             free(ip);
             free(url);
             return 1;
@@ -202,7 +234,7 @@ int receive_from_client(struct client* client, size_t client_index, struct pollf
         server_fd = socket(AF_INET, SOCK_STREAM, 0);
         if (server_fd == -1) {
             log_error("socket: %s", strerror(errno));
-            close_client(poll_fds, poll_fds_num, clients + client_index);
+            close_client(poll_fds->members, poll_fds_num, clients + client_index);
             free(ip);
             free(url);
             return 1;
@@ -212,11 +244,11 @@ int receive_from_client(struct client* client, size_t client_index, struct pollf
         serv_addr.sin_addr.s_addr = inet_addr(ip);
         free(ip);
         serv_addr.sin_port = htons(SERVER_PORT);
-        int poll_index = add_fd_to_poll(server_fd, POLLOUT, poll_fds, poll_fds_num);
+        int poll_index = add_fd_to_poll(server_fd, POLLOUT, poll_fds);
         int server_index;
         if (poll_index >= 0) {
             server_index = add_fd_to_servers(server_fd, serv_addr, poll_index,
-                                             &client->request, servers, servers_size);
+                                             &client->request, servers);
         }
         if (poll_index < 0 || server_index < 0) {
             log_error("too many connections");
@@ -226,9 +258,9 @@ int receive_from_client(struct client* client, size_t client_index, struct pollf
         log_debug("\tServer index %d", server_index);
         size_t cache_index = set(&cache, url);
         subscribe(client, &cache, cache_index);
-        make_publisher(&(servers[server_index]), &cache, cache_index);
-        poll_fds[client->poll_index].events = 0;
-        log_debug("\tClient poll_index %zu", servers[server_index].response->subscribers[0]->poll_index);
+        make_publisher(servers->members + server_index, &cache, cache_index);
+        poll_fds->members[client->poll_index].events = 0;
+        log_debug("\tClient poll_index %zu", servers->members[server_index].response->subscribers[0]->poll_index);
     }
     return 0;
 }
@@ -273,28 +305,28 @@ int send_to_client(struct client* client, size_t client_index, struct pollfd* po
     return 0;
 }
 
-int process_clients(struct pollfd* poll_fds, size_t poll_fds_num, struct client* clients, size_t clients_size,
-                    struct server* servers, size_t servers_size) {
-    for (size_t i = 0; i < clients_size; i++) {
-        struct client* client = &clients[i];
+int process_clients(struct poll_fds* poll_fds, struct clients* clients,
+                    struct servers* servers) {
+    for (size_t i = 0; i < clients->size; i++) {
+        struct client* client = clients->members + i;
         if (client->fd != -1 && !client->processed) {
             log_debug("Client %d", i);
-            if ((poll_fds[client->poll_index].revents & POLLHUP) == POLLHUP) {
+            if ((poll_fds->members[client->poll_index].revents & POLLHUP) == POLLHUP) {
                 log_debug("\tPOLLHUP");
-                close_client(poll_fds, poll_fds_num, clients + i);
+                close_client(poll_fds->members, poll_fds->size, client);
                 continue;
             }
-            if ((poll_fds[client->poll_index].revents & POLLERR) == POLLERR) {
+            if ((poll_fds->members[client->poll_index].revents & POLLERR) == POLLERR) {
                 log_debug("\tPOLLERR");
-                close_client(poll_fds, poll_fds_num, clients + i);
+                close_client(poll_fds->members, poll_fds->size, client);
                 continue;
             }
-            if ((poll_fds[client->poll_index].revents & POLLIN) == POLLIN) {
-                receive_from_client(client, i, poll_fds, poll_fds_num, clients, servers, servers_size);
+            if ((poll_fds->members[client->poll_index].revents & POLLIN) == POLLIN) {
+                receive_from_client(client, i, poll_fds, poll_fds->size, clients->members, servers);
                 continue;
             }
-            if ((poll_fds[client->poll_index].revents & POLLOUT) == POLLOUT) {
-                send_to_client(client, i, poll_fds, poll_fds_num, clients);
+            if ((poll_fds->members[client->poll_index].revents & POLLOUT) == POLLOUT) {
+                send_to_client(client, i, poll_fds->members, poll_fds->size, clients->members);
             }
         }
     }
@@ -303,7 +335,7 @@ int process_clients(struct pollfd* poll_fds, size_t poll_fds_num, struct client*
 
 void
 close_server_and_subscribers(struct server* server, size_t server_index, struct pollfd* poll_fds, size_t poll_fds_num,
-                             struct server* servers, struct client* clients) {
+                             struct server* servers) {
     for (int k = 0; k < server->response->subscribers_max_size; k++) {
         if (server->response->subscribers[k] != NULL) {
             close_client(poll_fds, poll_fds_num, server->response->subscribers[k]);
@@ -313,11 +345,11 @@ close_server_and_subscribers(struct server* server, size_t server_index, struct 
 }
 
 int connect_to_server(struct server* server, int server_index, struct pollfd* poll_fds, size_t poll_fds_num,
-                      struct server* servers, struct client* clients) {
+                      struct server* servers) {
     if (connect(server->fd,
                 (SA*) &server->serv_addr,
                 sizeof(server->serv_addr)) != 0) {
-        close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers, clients);
+        close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers);
         return 1;
     } else {
         server->processed = 1;
@@ -327,14 +359,14 @@ int connect_to_server(struct server* server, int server_index, struct pollfd* po
 }
 
 int send_to_server(struct server* server, int server_index, struct pollfd* poll_fds, size_t poll_fds_num,
-                   struct server* servers, struct client* clients) {
+                   struct server* servers) {
     ssize_t return_value;
     while ((return_value = write(server->fd, server->request->buf + server->bytes_written,
                                  server->request->buf_len - server->bytes_written)) == -1 &&
            errno == EINTR);
     if (return_value < 0) {
         log_error("write to server: %s", strerror(errno));
-        close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers, clients);
+        close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers);
         return 1;
     } else if (return_value == 0) {
         poll_fds[server->poll_index].events = POLLIN;
@@ -345,7 +377,6 @@ int send_to_server(struct server* server, int server_index, struct pollfd* poll_
 }
 
 int receive_from_server(struct server* server, int server_index, struct pollfd* poll_fds, size_t poll_fds_num,
-                        struct client* clients,
                         struct server* servers) {
     log_debug("\tfd %d", server->fd);
     ssize_t return_value;
@@ -359,11 +390,11 @@ int receive_from_server(struct server* server, int server_index, struct pollfd* 
     log_debug("\tReceive %zd bytes", return_value);
     if (return_value < 0) {
         log_error("read from server: %s", strerror(errno));
-        close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers, clients);
+        close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers);
         return 1;
     }
     if (return_value == 0) {
-        close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers, clients);
+        close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers);
         return 0;
     }
     server->response->prev_buf_len = server->response->buf_len;
@@ -373,7 +404,7 @@ int receive_from_server(struct server* server, int server_index, struct pollfd* 
         server->response->buf = (char*) realloc(server->response->buf, sizeof(char) * server->response->buf_size);
         if (server->response->buf == NULL) {
             log_error("realloc failed: %s", strerror(errno));
-            close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers, clients);
+            close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers);
             return 1;
         }
     }
@@ -392,7 +423,7 @@ int receive_from_server(struct server* server, int server_index, struct pollfd* 
             return_value = get_header_value(&content_length, &content_length_len, "Content-Length",
                                             server->response->headers, server->response->num_headers);
             if (return_value == 2) {
-                close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers, clients);
+                close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers);
                 return 1;
             }
             if (return_value == 0) {
@@ -430,52 +461,51 @@ int receive_from_server(struct server* server, int server_index, struct pollfd* 
     return 0;
 }
 
-int process_servers(struct pollfd* poll_fds, size_t poll_fds_num, struct client* clients,
-                    struct server* servers, size_t servers_size) {
-    for (int i = 0; i < servers_size; i++) {
-        struct server* server = &servers[i];
+int process_servers(struct poll_fds* poll_fds, struct clients* clients,
+                    struct servers* servers) {
+    for (int i = 0; i < servers->size; i++) {
+        struct server* server = servers->members + i;
         if (server->fd != -1 && !server->processed) {
             log_debug("Server %d", i);
-            if ((poll_fds[server->poll_index].revents & POLLERR) == POLLERR) {
+            if ((poll_fds->members[server->poll_index].revents & POLLERR) == POLLERR) {
                 log_error("\tPOLLERR");
-                close_server_and_subscribers(server, i, poll_fds, poll_fds_num, servers, clients);
+                close_server_and_subscribers(server, i, poll_fds->members, poll_fds->size, servers->members);
                 continue;
             }
-            if ((poll_fds[server->poll_index].revents & (POLLOUT | POLLHUP)) == (POLLOUT | POLLHUP)) {
-                connect_to_server(server, i, poll_fds, poll_fds_num, servers, clients);
+            if ((poll_fds->members[server->poll_index].revents & (POLLOUT | POLLHUP)) == (POLLOUT | POLLHUP)) {
+                connect_to_server(server, i, poll_fds->members, poll_fds->size, servers->members);
                 continue;
             }
-            if ((poll_fds[server->poll_index].revents & POLLHUP) == POLLHUP) {
+            if ((poll_fds->members[server->poll_index].revents & POLLHUP) == POLLHUP) {
                 log_debug("\tPOLLHUP");
-                close_server_and_subscribers(server, i, poll_fds, poll_fds_num, servers, clients);
+                close_server_and_subscribers(server, i, poll_fds->members, poll_fds->size, servers->members);
                 continue;
             }
-            if ((poll_fds[server->poll_index].revents & POLLOUT) == POLLOUT) {
-                send_to_server(server, i, poll_fds, poll_fds_num, servers, clients);
+            if ((poll_fds->members[server->poll_index].revents & POLLOUT) == POLLOUT) {
+                send_to_server(server, i, poll_fds->members, poll_fds->size, servers->members);
                 continue;
             }
-            if ((poll_fds[server->poll_index].revents & POLLIN) == POLLIN) {
-                receive_from_server(server, i, poll_fds, poll_fds_num, clients, servers);
+            if ((poll_fds->members[server->poll_index].revents & POLLIN) == POLLIN) {
+                receive_from_server(server, i, poll_fds->members, poll_fds->size, servers->members);
             }
         }
     }
     return 0;
 }
 
-int accept_client(struct pollfd* poll_fds, size_t poll_fds_num,
-                  struct client* clients, size_t clients_size) {
-    if (poll_fds[0].revents & POLLIN) {
-        int client_fd = accept(poll_fds[0].fd, NULL, NULL);
+int accept_client(struct poll_fds* poll_fds, struct clients* clients) {
+    if (poll_fds->members[0].revents & POLLIN) {
+        int client_fd = accept(poll_fds->members[0].fd, NULL, NULL);
         if (client_fd < 0) {
             log_error("accept failed: %s", strerror(errno));
             return -1;
         } else {
         }
         log_debug("Accept client fd %d", client_fd);
-        int poll_index = add_fd_to_poll(client_fd, POLLIN, poll_fds, poll_fds_num);
+        int poll_index = add_fd_to_poll(client_fd, POLLIN, poll_fds);
         int client_index;
         if (poll_index >= 0) {
-            client_index = add_fd_to_clients(client_fd, poll_index, clients, clients_size);
+            client_index = add_fd_to_clients(client_fd, poll_index, clients);
         }
         if (poll_index < 0 || client_index < 0) {
             log_error("too many connections");
@@ -502,7 +532,7 @@ int process_signal(struct pollfd poll_socket_fd) {
     return 0;
 }
 
-int signal_fd_init(struct pollfd* poll_fds) {
+int signal_fd_init(struct poll_fds* poll_fds) {
     sigset_t mask;
     int signal_fd;
     sigemptyset(&mask);
@@ -515,12 +545,11 @@ int signal_fd_init(struct pollfd* poll_fds) {
         log_error("signalfd: %s", strerror(errno));
         return 1;
     }
-    poll_fds[1].fd = signal_fd;
-    poll_fds[1].events = POLLIN;
+    add_fd_to_poll(signal_fd, POLLIN, poll_fds);
     return 0;
 }
 
-int proxy_fd_init(struct pollfd* poll_fds) {
+int proxy_fd_init(struct poll_fds* poll_fds) {
     int proxy_fd;
     struct sockaddr_in proxyaddr;
     proxy_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -538,16 +567,13 @@ int proxy_fd_init(struct pollfd* poll_fds) {
         log_error("socket bind failed: %s", strerror(errno));
         close(proxy_fd);
         return -1;
-    } else {
     }
     if ((listen(proxy_fd, SOMAXCONN)) != 0) {
         log_error("listen failed: %s", strerror(errno));
         close(proxy_fd);
         return -1;
-    } else {
     }
-    poll_fds[0].fd = proxy_fd;
-    poll_fds[0].events = POLLIN;
+    add_fd_to_poll(proxy_fd, POLLIN, poll_fds);
     return 0;
 }
 
@@ -566,20 +592,15 @@ int parse_args(int argc, char* argv[]) {
     return -1;
 }
 
-void init_poll_fds(struct pollfd* poll_fds, size_t size) {
-    for (int i = 0; i < size; i++) {
-        poll_fds[i].fd = -1;
-    }
-}
-
 void init_sig_mask(sigset_t* sig_mask) {
     sigemptyset(sig_mask);
     sigaddset(sig_mask, SIGINT);
 }
 
 int main(int argc, char* argv[]) {
-    log_set_level(LOG_ERROR);
+//    log_set_level(LOG_ERROR);
     int error = 0;
+    int ret_val = 0;
     if (parse_args(argc, argv) != 0) {
         printf(USAGE);
         return EXIT_FAILURE;
@@ -588,17 +609,28 @@ int main(int argc, char* argv[]) {
     int poll_fds_num = INIT_FDS_SIZE;
     int clients_size = poll_fds_num;
     int servers_size = poll_fds_num;
-    struct pollfd* poll_fds = (struct pollfd*) malloc(sizeof(struct pollfd) * poll_fds_num);
-    struct client* clients = (struct client*) malloc(sizeof(struct client) * clients_size);
-    struct server* servers = (struct server*) malloc(sizeof(struct server) * servers_size);
-    if (init_clients(clients, clients_size) != 0) {
+    struct clients clients;
+    struct servers servers;
+    ret_val = init_clients(&clients, clients_size);
+    if (ret_val != 0) {
         log_error("init_clients: %s", strerror(errno));
+        error = 1;
+        goto EXIT;
+    }
+    ret_val = init_servers(&servers, servers_size);
+    if (ret_val != 0) {
+        log_error("init_servers: %s", strerror(errno));
+        error = 1;
+        goto FREE_CLIENTS;
+    }
+    struct poll_fds poll_fds;
+    ret_val = init_poll_fds(&poll_fds, poll_fds_num);
+    if (ret_val != 0) {
+        log_error("init_poll_fds: %s", strerror(errno));
         error = 1;
         goto CLEANUP;
     }
-    init_servers(servers, servers_size);
-    init_poll_fds(poll_fds, poll_fds_num);
-    if (proxy_fd_init(poll_fds) != 0 || signal_fd_init(poll_fds) != 0) {
+    if (proxy_fd_init(&poll_fds) != 0 || signal_fd_init(&poll_fds) != 0) {
         error = 1;
         goto CLEANUP;
     }
@@ -611,7 +643,7 @@ int main(int argc, char* argv[]) {
     int iteration = 0;
     while (1) {
         log_debug("%d.", iteration++);
-        int poll_return = ppoll(poll_fds, poll_fds_num, NULL, &sig_mask);
+        int poll_return = ppoll(poll_fds.members, poll_fds_num, NULL, &sig_mask);
         if (poll_return == -1) {
             if (errno != EINTR) {
                 log_error("poll failed: %s", strerror(errno));
@@ -621,7 +653,7 @@ int main(int argc, char* argv[]) {
         }
         log_debug("Return from poll");
         log_debug("====Process signal====");
-        int return_value = process_signal(poll_fds[1]);
+        int return_value = process_signal(poll_fds.members[1]);
         if (return_value != 0) {
             if (return_value == 2) {
                 error = 1;
@@ -630,27 +662,28 @@ int main(int argc, char* argv[]) {
         }
         log_debug("=====================\n");
         log_debug("====Accept client====");
-        if (accept_client(poll_fds, poll_fds_num, clients, clients_size) != 0) {
+        if (accept_client(&poll_fds, &clients) != 0) {
             log_error("accept_client failed");
         }
         log_debug("====================\n");
         log_debug("====Process clients===");
-        process_clients(poll_fds, poll_fds_num, clients, clients_size, servers, servers_size);
+        process_clients(&poll_fds, &clients, &servers);
         log_debug("=====================\n");
         log_debug("===Process servers===");
-        process_servers(poll_fds, poll_fds_num, clients, servers, servers_size);
+        process_servers(&poll_fds, &clients, &servers);
         log_debug("=====================\n\n");
         for (int i = 0; i < poll_fds_num; i++) {
-            servers[i].processed = 0;
-            clients[i].processed = 0;
+            servers.members[i].processed = 0;
+            clients.members[i].processed = 0;
         }
     }
     CLEANUP:
-    free_clients(clients, clients_size);
-    free(servers);
-    close_all(poll_fds, poll_fds_num);
-    free(poll_fds);
-    free_cache(cache);
+    close_all(poll_fds.members, poll_fds_num);
+    free(poll_fds.members);
+    free_servers(&servers);
+    FREE_CLIENTS:
+    free_clients(&clients);
+    EXIT:
     if (error) {
         return EXIT_FAILURE;
     }

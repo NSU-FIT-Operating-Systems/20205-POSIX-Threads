@@ -30,6 +30,12 @@ struct client {
     int cache_node;
 };
 
+struct clients {
+    struct client* members;
+    size_t size;
+    size_t current_number;
+};
+
 struct server {
     struct request* request;
     struct response* response;
@@ -39,27 +45,39 @@ struct server {
     int fd, processed;
 };
 
+struct servers {
+    struct server* members;
+    size_t size;
+    size_t current_number;
+};
+
+int init_clients(struct clients* clients, size_t size);
+
+int init_servers(struct servers* servers, size_t size);
+
 int parse_request(struct request* request);
 
 int parse_response(struct response* response);
 
 int init_client(struct client* client);
 
-int init_clients(struct client* clients, size_t size);
+int init_clients_members(struct client* clients, size_t size);
 
-void init_servers(struct server* servers, size_t size);
+void init_servers_members(struct server* servers, size_t size);
 
 void setup_client(struct client* client);
 
 void setup_server(size_t index, struct server* servers);
 
-void free_clients(struct client* clients, size_t clients_num);
+void free_clients(struct clients* clients);
 
-int add_fd_to_clients(int fd, size_t poll_index, struct client* clients, size_t clients_size);
+void free_servers(struct servers* servers);
+
+int add_fd_to_clients(int fd, size_t poll_index, struct clients* clients);
 
 int add_fd_to_servers(int fd, struct sockaddr_in serv_addr,
-                      size_t poll_index, struct request* request,
-                      struct server* servers, size_t servers_size);
+                       size_t poll_index, struct request* request,
+                       struct servers* servers);
 
 ssize_t get_header_value(char** value, size_t* value_len, char* header_name,
                          struct phr_header* headers, size_t num_headers);
