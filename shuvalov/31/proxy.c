@@ -539,7 +539,7 @@ int signal_fd_init(struct poll_fds* poll_fds) {
     sigset_t mask;
     int signal_fd;
     sigemptyset(&mask);
-    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGINT | SIGPIPE);
     if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
         log_error("sigprocmask: %s", strerror(errno));
     }
