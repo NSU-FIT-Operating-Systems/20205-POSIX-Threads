@@ -22,7 +22,7 @@
 #define SERVER_PORT 80
 #define PROXY_PORT 8080
 #define PROXY_IP "0.0.0.0"
-#define INIT_FDS_SIZE 100
+#define INIT_FDS_SIZE 200
 #define USAGE "USAGE:\tproxy [IP PORT]\nWHERE:\tIP - IP address of proxy\n\tPORT - port of proxy\n"
 #define READ_BUFFER_SIZE (32 * 1024)
 #define WRITE_BUFFER_SIZE (64 * 1024)
