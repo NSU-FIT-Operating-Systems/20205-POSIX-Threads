@@ -597,7 +597,7 @@ int parse_args(int argc, char* argv[]) {
 
 void init_sig_mask(sigset_t* sig_mask) {
     sigemptyset(sig_mask);
-    sigaddset(sig_mask, SIGINT);
+    sigaddset(sig_mask, SIGINT | SIGPIPE);
 }
 
 int main(int argc, char* argv[]) {
