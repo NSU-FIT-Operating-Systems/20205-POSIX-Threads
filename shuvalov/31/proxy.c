@@ -22,7 +22,7 @@
 #define SERVER_PORT 80
 #define PROXY_PORT 8080
 #define PROXY_IP "0.0.0.0"
-#define MAX_FDS 100
+#define INIT_FDS_SIZE 100
 #define USAGE "USAGE:\tproxy [IP PORT]\nWHERE:\tIP - IP address of proxy\n\tPORT - port of proxy\n"
 #define READ_BUFFER_SIZE (32 * 1024)
 #define WRITE_BUFFER_SIZE (64 * 1024)
@@ -528,7 +528,8 @@ int proxy_fd_init(struct pollfd* poll_fds) {
         log_error("socket creation failed: %s", strerror(errno));
         return -1;
     }
-    setsockopt(proxy_fd, SOL_SOCKET, SO_REUSEADDR, NULL, 0);
+    int optval = 1;
+    setsockopt(proxy_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
     bzero(&proxyaddr, sizeof(proxyaddr));
     proxyaddr.sin_family = AF_INET;
     proxyaddr.sin_addr.s_addr = inet_addr(proxy_ip);
@@ -584,12 +585,12 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
     printf("IP address: %s\nPort: %ld\n", proxy_ip, proxy_port);
-    int poll_fds_num = MAX_FDS;
+    int poll_fds_num = INIT_FDS_SIZE;
     int clients_size = poll_fds_num;
     int servers_size = poll_fds_num;
-    struct pollfd poll_fds[poll_fds_num];
-    struct client clients[clients_size];
-    struct server servers[servers_size];
+    struct pollfd* poll_fds = (struct pollfd*) malloc(sizeof(struct pollfd) * poll_fds_num);
+    struct client* clients = (struct client*) malloc(sizeof(struct client) * clients_size);
+    struct server* servers = (struct server*) malloc(sizeof(struct server) * servers_size);
     if (init_clients(clients, clients_size) != 0) {
         log_error("init_clients: %s", strerror(errno));
         error = 1;
@@ -646,7 +647,9 @@ int main(int argc, char* argv[]) {
     }
     CLEANUP:
     free_clients(clients, clients_size);
+    free(servers);
     close_all(poll_fds, poll_fds_num);
+    free(poll_fds);
     free_cache(cache);
     if (error) {
         return EXIT_FAILURE;

@@ -85,6 +85,7 @@ void free_clients(struct client* clients, size_t clients_num) {
             free(clients[i].request.headers);
         }
     }
+    free(clients);
 }
 
 int add_fd_to_clients(int fd, size_t poll_index, struct client* clients, size_t clients_size) {
