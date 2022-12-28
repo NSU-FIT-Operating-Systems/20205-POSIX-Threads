@@ -681,6 +681,7 @@ int main(int argc, char* argv[]) {
         }
     }
     CLEANUP:
+    free_cache(cache);
     close_all(poll_fds.members, poll_fds_num);
     free(poll_fds.members);
     free_servers(&servers);
