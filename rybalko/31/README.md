@@ -1,8 +1,8 @@
-#BUILD
+# BUILD
 make
 
-#RUN
+# RUN
 ./server 8080
 
-#STOP
+# STOP
 CTRL + C
