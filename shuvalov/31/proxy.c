@@ -13,6 +13,7 @@
 #include <sys/signalfd.h>
 #include <signal.h>
 #include <assert.h>
+#include <fcntl.h>
 #include "socket_operations/socket_operations.h"
 #include "http_socket/http_socket.h"
 #include "http_socket/cache.h"
@@ -274,7 +275,7 @@ int send_to_client(struct client* client, size_t client_index, struct poll_fds* 
     size_t to_write = client->response->buf_len - client->bytes_written;
     log_debug("\tbuf_len = %d, bytes_written = %d", client->response->buf_len, client->bytes_written);
     if (to_write > WRITE_BUFFER_SIZE) {
-        to_write = WRITE_BUFFER_SIZE;
+//        to_write = WRITE_BUFFER_SIZE;
     }
     return_value = write(client->fd,
                          client->response->buf + client->bytes_written,
@@ -355,6 +356,8 @@ int connect_to_server(struct server* server, int server_index, struct poll_fds* 
         close_server_and_subscribers(server, server_index, poll_fds, poll_fds_num, servers, clients);
         return 1;
     } else {
+        int flags = fcntl(server->fd, F_GETFL, 0);
+        fcntl(server->fd, F_SETFL, flags | O_NONBLOCK);
         server->processed = 1;
         log_debug("\tConnect server fd %d", server->fd);
     }
@@ -385,7 +388,7 @@ int receive_from_server(struct server* server, int server_index, struct poll_fds
     ssize_t return_value;
     size_t to_read = server->response->buf_size - server->response->buf_len;
     if (to_read > READ_BUFFER_SIZE) {
-        to_read = READ_BUFFER_SIZE;
+//        to_read = READ_BUFFER_SIZE;
     }
     while ((return_value = read(server->fd, server->response->buf + server->response->buf_len,
                                 to_read)) == -1 &&
@@ -502,9 +505,10 @@ int accept_client(struct poll_fds* poll_fds, struct clients* clients) {
         if (client_fd < 0) {
             log_error("accept failed: %s", strerror(errno));
             return -1;
-        } else {
         }
         log_debug("Accept client fd %d", client_fd);
+        int flags = fcntl(client_fd, F_GETFL, 0);
+        fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
         int poll_index = add_fd_to_poll(client_fd, POLLIN, poll_fds);
         int client_index;
         if (poll_index >= 0) {
