@@ -1,7 +1,5 @@
 #include "list.h"
 
-int add_string();
-
 int add_string(List *list, char *str) {
 	pthread_mutex_lock(&list_mutex);
 	Item *item = malloc(sizeof(char) * strlen(str) + 1);

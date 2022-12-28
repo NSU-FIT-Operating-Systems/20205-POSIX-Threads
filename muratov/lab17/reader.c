@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#define SORT_DELAY 5000
+#define SORT_DELAY 5
 #define MAX_LENGTH 80
 
 List list;
@@ -45,11 +45,13 @@ int main() {
 			clear_all(sorter);
 			return 1;
 		}
-		if(strcmp(".", buffer) == 0) {
+		if(strncmp(".\n", buffer, 2) == 0 || count == 0) {
 			break;
 		}
-		if(count == 0) {
+		buffer[count - 1] = '\0';
+		if(count == 1) {
 			print_list(&list);
+			continue;
 		}
 		char *copy = (char*) malloc(sizeof(char) * count + 1);
 		if(copy == NULL) {
