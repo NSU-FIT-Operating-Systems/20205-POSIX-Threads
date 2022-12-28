@@ -38,6 +38,7 @@ int main() {
 		return 1;
 	}
 	char buffer[MAX_LENGTH + 1];
+	char last_char = '\n';
 	while(1) {
 		ssize_t count = read(STDIN_FILENO, buffer, MAX_LENGTH);
 		if(count < 0) {
@@ -48,12 +49,18 @@ int main() {
 		if(strncmp(".\n", buffer, 2) == 0 || count == 0) {
 			break;
 		}
-		buffer[count - 1] = '\0';
 		if(count == 1) {
-			print_list(&list);
+			if(last_char == '\n') {
+				print_list(&list);
+			}
+			last_char = '\n';
 			continue;
 		}
-		char *copy = (char*) malloc(sizeof(char) * count + 1);
+		last_char = buffer[count - 1];
+		if(buffer[count - 1] == '\n') {
+			buffer[count - 1] = '\0';
+		}
+		char *copy = (char*) malloc(sizeof(char) * (count + 1));
 		if(copy == NULL) {
 			perror("failed to allocate memory for new string");
 			clear_all(sorter);
