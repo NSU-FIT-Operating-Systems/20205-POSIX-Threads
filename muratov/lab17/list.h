@@ -2,9 +2,10 @@
 #define LIST_H
 
 #include <pthread.h>
-
-#define SORT_DELAY 5000
-#define MAX_LENGTH 80
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
 
 extern pthread_mutex_t list_mutex;
 
@@ -16,6 +17,7 @@ typedef struct Item {
 typedef struct List {
 	Item *begin;
 	Item *end;
+	int size;
 } List;
 
 int add_string(List *list, char *str);

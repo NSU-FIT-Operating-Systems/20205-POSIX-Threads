@@ -7,7 +7,7 @@ LIST=list
 all: $(FILENAME).out
 
 $(FILENAME).out: $(FILENAME).o $(LIST).o
-	$(CC) -pthread $(FILENAME).o $(LIST) -o $(FILENAME).out -lm
+	$(CC) -pthread $(FILENAME).o $(LIST).o -o $(FILENAME).out -lm
 
 $(FILENAME).o: $(FILENAME).c
 	$(CC) $(CFLAGS) $(FILENAME).c -o $(FILENAME).o
