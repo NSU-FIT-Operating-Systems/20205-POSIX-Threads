@@ -51,7 +51,7 @@ int READ_STOP_FD = -1;
 void destroyPollFds(struct pollfd *poll_fds, int *poll_last_index) {
     for (int i = 0; i < *poll_last_index; i++) {
         if (poll_fds[i].fd > 0) {
-            fprintf(stderr, "closing fd %d...\n", poll_fds[i].fd);
+            //fprintf(stderr, "closing fd %d...\n", poll_fds[i].fd);
             int close_res = close(poll_fds[i].fd);
             if (close_res < 0) {
                 fprintf(stderr, "error while closing fd %d ", poll_fds[i].fd);
@@ -1033,6 +1033,7 @@ int main(int argc, char *argv[]) {
 
 
     while (!is_stop) {
+        fprintf(stderr, "main: poll()\n");
         int poll_res = poll(poll_fds, poll_last_index, TIMEOUT * 1000);
         if (poll_res < 0) {
             perror("poll");
@@ -1045,8 +1046,8 @@ int main(int argc, char *argv[]) {
         int num_handled_fd = 0;
         size_t i = 0;
         size_t prev_last_index = poll_last_index;
-        /*fprintf(stderr, "poll_res = %d\n", poll_res);
-        for (int j = 0; j < prev_last_index; j++) {
+        fprintf(stderr, "main: poll_res = %d\n", poll_res);
+        /*for (int j = 0; j < prev_last_index; j++) {
             fprintf(stderr, "poll_fds[%d] = %d : ", j, poll_fds[j].fd);
             if (poll_fds[j].revents & POLLIN) {
                 fprintf(stderr, "POLLIN ");
