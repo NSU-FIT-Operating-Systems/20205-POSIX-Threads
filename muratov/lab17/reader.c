@@ -46,7 +46,7 @@ int main() {
 			clear_all(sorter);
 			return 1;
 		}
-		if(strncmp(".\n", buffer, 2) == 0 || count == 0) {
+		if((strncmp(".\n", buffer, 2) == 0 && last_char == '\n') || count == 0) {
 			break;
 		}
 		if(count == 1) {
