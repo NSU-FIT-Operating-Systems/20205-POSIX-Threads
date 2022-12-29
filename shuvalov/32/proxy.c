@@ -37,8 +37,28 @@ long proxy_port = PROXY_PORT;
 char* proxy_ip = PROXY_IP;
 struct cache cache;
 struct servers servers;
+int stop = 0;
+size_t threads_total = 0;
+size_t completed_threads = 0;
+pthread_mutex_t mutex;
 
 extern int errno;
+
+void cleanup(void) {
+    pthread_mutex_lock(&mutex);
+    if (threads_total == completed_threads && stop == 1) {
+        free_cache(cache);
+        free_servers(&servers);
+    }
+    pthread_mutex_unlock(&mutex);
+}
+
+void exit_routine(void) {
+    pthread_mutex_lock(&mutex);
+    completed_threads++;
+    pthread_mutex_unlock(&mutex);
+    cleanup();
+}
 
 ssize_t get_substring(char* substring, char* string, size_t string_length) {
     char* p1, * p2, * p3;
@@ -218,14 +238,25 @@ int receive_from_server(struct server* server) {
 void* server_function(struct server* server) {
     connect_to_server(server);
     int ret_val;
-    while ((ret_val = send_to_server(server)) == 0);
+    while ((ret_val = send_to_server(server)) == 0 && !stop);
+    if (stop) {
+        exit_routine();
+        return (void*) EXIT_SUCCESS;
+    }
     if (ret_val == -1) {
+        exit_routine();
         return (void*) EXIT_FAILURE;
     }
-    while ((ret_val = receive_from_server(server)) == 0);
+    while ((ret_val = receive_from_server(server)) == 0 && !stop);
+    if (stop) {
+        exit_routine();
+        return (void*) EXIT_SUCCESS;
+    }
     if (ret_val == -1) {
+        exit_routine();
         return (void*) EXIT_FAILURE;
     }
+    exit_routine();
     return (void*) EXIT_SUCCESS;
 }
 
@@ -346,13 +377,20 @@ int subscribe_client(struct client* client) {
     size_t cache_index = set(&cache, url);
     subscribe(client, &cache, cache_index);
     make_publisher(servers.members + server_index, &cache, cache_index);
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     pthread_t server;
-    int err = pthread_create(&server, NULL, (void* (*)(void*)) server_function,
+    int err = pthread_create(&server, &attr, (void* (*)(void*)) server_function,
                              (void*) (servers.members + server_index));
     if (err != 0) {
         log_error("pthread_create failed: %s", strerror(err));
         return -1;
     }
+    pthread_mutex_lock(&mutex);
+    threads_total++;
+    pthread_mutex_unlock(&mutex);
+    pthread_attr_destroy(&attr);
     return RESPONSE_NOT_IN_CACHE;
 }
 
@@ -418,18 +456,36 @@ void* client_function(ssize_t client_fd) {
     client.fd = (int) client_fd;
     log_debug("client fd = %d", client_fd);
     int ret_val;
-    while ((ret_val = receive_from_client(&client)) == RECEIVING);
+    while ((ret_val = receive_from_client(&client)) == RECEIVING && !stop);
+    if (stop) {
+        free_client(&client);
+        exit_routine();
+        return (void*) EXIT_SUCCESS;
+    }
     if (ret_val == CLOSE) {
+        free_client(&client);
+        exit_routine();
         return (void*) EXIT_FAILURE;
     }
     ret_val = subscribe_client(&client);
     if (ret_val == CLOSE) {
+        free_client(&client);
+        exit_routine();
         return (void*) EXIT_FAILURE;
     }
-    while ((ret_val = send_to_client(&client)) == 0);
+    while ((ret_val = send_to_client(&client)) == 0 && !stop);
+    if (stop) {
+        free_client(&client);
+        exit_routine();
+        return (void*) EXIT_SUCCESS;
+    }
     if (ret_val == -1) {
+        free_client(&client);
+        exit_routine();
         return (void*) EXIT_FAILURE;
     }
+    free_client(&client);
+    exit_routine();
     return (void*) EXIT_SUCCESS;
 }
 
@@ -440,34 +496,40 @@ int accept_client(int proxy_fd) {
         return -1;
     }
     log_debug("Accept client fd %d", client_fd);
+    sigset_t mask, old_mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    int ret_val;
+    if ((ret_val = pthread_sigmask(SIG_BLOCK, &mask, &old_mask)) != 0) {
+        log_error("sigprocmask: %s", strerror(ret_val));
+        return -1;
+    }
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     pthread_t client;
-    int err = pthread_create(&client, NULL, (void* (*)(void*)) client_function, (void*) client_fd);
-    if (err != 0) {
-        log_error("pthread_create failed: %s", strerror(err));
+    ret_val = pthread_create(&client, NULL, (void* (*)(void*)) client_function, (void*) client_fd);
+    if (ret_val != 0) {
+        log_error("pthread_create failed: %s", strerror(ret_val));
+        return -1;
+    }
+    pthread_attr_destroy(&attr);
+    pthread_mutex_lock(&mutex);
+    threads_total++;
+    pthread_mutex_unlock(&mutex);
+    if ((ret_val = pthread_sigmask(SIG_SETMASK, &old_mask, NULL)) != 0) {
+        log_error("sigprocmask: %s", strerror(ret_val));
         return -1;
     }
     return 0;
 }
 
-int sigmask_init(void) {
-//    sigset_t mask;
-//    sigemptyset(&mask);
-//    sigaddset(&mask, SIGINT);
-//    int ret_val;
-//    if ((ret_val = pthread_sigmask(SIG_BLOCK, &mask, NULL)) != 0) {
-//        log_error("sigprocmask: %s", strerror(ret_val));
-//        return -1;
-//    }
+void sigmask_init(void) {
     struct sigaction new_actn, old_actn;
     new_actn.sa_handler = SIG_IGN;
-    sigemptyset (&new_actn.sa_mask);
+    sigemptyset(&new_actn.sa_mask);
     new_actn.sa_flags = 0;
-    sigaction (SIGPIPE, &new_actn, &old_actn);
-//    new_actn.sa_handler = SIG_BLOCK;
-//    sigemptyset (&new_actn.sa_mask);
-//    new_actn.sa_flags = 0;
-//    sigaction (SIGINT, &new_actn, &old_actn);
-    return 0;
+    sigaction(SIGPIPE, &new_actn, &old_actn);
 }
 
 int proxy_fd_init(void) {
@@ -512,13 +574,18 @@ int parse_args(int argc, char* argv[]) {
     return -1;
 }
 
+void sig_handler(int signum){
+    stop = 1;
+    cleanup();
+    pthread_exit((void*) EXIT_SUCCESS);
+}
+
 int main(int argc, char* argv[]) {
-//    log_set_level(LOG_ERROR);
-    int error = 0;
+    log_set_level(LOG_ERROR);
     int ret_val = 0;
     if (parse_args(argc, argv) != 0) {
         printf(USAGE);
-        return EXIT_FAILURE;
+        pthread_exit((void*) EXIT_FAILURE);
     }
     printf("IP address: %s\nPort: %ld\n", proxy_ip, proxy_port);
     int poll_fds_num = INIT_FDS_SIZE;
@@ -526,37 +593,27 @@ int main(int argc, char* argv[]) {
     ret_val = init_servers(&servers, servers_size);
     if (ret_val != 0) {
         log_error("init_servers: %s", strerror(errno));
-        error = 1;
         goto EXIT;
     }
     if (init_cache(&cache, CACHE_SIZE) != 0) {
-        error = 1;
         goto CLEANUP;
     }
     int proxy_fd;
     if ((proxy_fd = proxy_fd_init()) < 0) {
-        error = 1;
         goto CLEANUP;
     }
-    if (sigmask_init() != 0) {
-        error = 1;
-        goto CLEANUP;
-    }
+    signal(SIGINT,sig_handler);
+    sigmask_init();
+    pthread_mutex_init(&mutex, NULL);
     int iteration = 0;
     while (1) {
         log_debug("%d.", iteration++);
-        log_debug("====Accept client====");
         if (accept_client(proxy_fd) != 0) {
             log_error("accept_client failed");
         }
-        log_debug("====================\n");
     }
     CLEANUP:
-    free_cache(cache);
-    free_servers(&servers);
+    cleanup();
     EXIT:
-    if (error) {
-        pthread_exit((void*) EXIT_FAILURE);
-    }
-    pthread_exit((void*) EXIT_SUCCESS);
+    pthread_exit((void*) EXIT_FAILURE);
 }
