@@ -114,7 +114,7 @@ int send_to_server(struct server* server) {
         close_server_and_subscribers(server);
         return -1;
     }
-    log_debug("\tSend %zd", return_value);
+    log_debug("\tSend %ztd", return_value);
     server->bytes_written += return_value;
     if (server->bytes_written == server->request->buf_len) {
         return 1;
@@ -129,7 +129,7 @@ int receive_from_server(struct server* server) {
     if (to_read > READ_BUFFER_SIZE) {
         to_read = READ_BUFFER_SIZE;
     }
-    while ((return_value = read_all(server->fd, server->response->buf + server->response->buf_len,
+    while ((return_value = read(server->fd, server->response->buf + server->response->buf_len,
                                 to_read)) == -1 &&
            errno == EINTR);
     log_debug("\tReceive %zd bytes", return_value);
@@ -505,7 +505,7 @@ int parse_args(int argc, char* argv[]) {
 }
 
 int main(int argc, char* argv[]) {
-    log_set_level(LOG_ERROR);
+//    log_set_level(LOG_ERROR);
     int error = 0;
     int ret_val = 0;
     if (parse_args(argc, argv) != 0) {
