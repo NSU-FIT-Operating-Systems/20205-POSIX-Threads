@@ -14,7 +14,7 @@ void errorMessage(char* errorMsg) {
     perror(errorMsg);
 }
 
-void* function(int index) {
+void* function(int threadIndex) {
     for (int i = 0; i < 10; ++i) {
         if (err) {
             return (void*) EXIT_FAILURE;
@@ -24,13 +24,13 @@ void* function(int index) {
             err = true;
             return (void*) EXIT_FAILURE;
     	}
-        while (!err && ((isMainOutput && index) || (!isMainOutput && !index))) {
+        while (!err && ((isMainOutput && threadIndex) || (!isMainOutput && !threadIndex))) {
             if (pthread_cond_wait(&condVar, &mutex)){
             	return (void*) EXIT_FAILURE;
             }
         }
         isMainOutput = !isMainOutput;
-        if (index) {
+        if (threadIndex) {
             printf("second - %d\n", i);
         }
         else {
@@ -54,12 +54,18 @@ int main() {
         perror("Error creating attributes\n");
         pthread_exit(NULL);
     }
-
     if (pthread_mutex_init(&mutex, &attr)) {
         errorMessage("Error creating mutex");
         pthread_exit(NULL);
     }
-    pthread_cond_init(&condVar, NULL);
+    pthread_mutexattr_destroy(&attr);
+    
+    if (pthread_cond_init(&condVar, NULL)) {
+    	errorMessage("Error creating mutex");
+    	pthread_mutex_destroy(&mutex);
+        pthread_exit(NULL);
+    }
+    
     if (pthread_create(&thread, NULL, (void* (*)(void*)) function, (void*) 1)) {
         errorMessage("pthread_create failed");
         pthread_mutex_destroy(&mutex);
