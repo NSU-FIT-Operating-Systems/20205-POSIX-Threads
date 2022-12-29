@@ -19,9 +19,11 @@ void *sort_thread() {
 }
 
 void clear_all(pthread_t sorter) {
-	clear_list(&list);
 	pthread_cancel(sorter);
-	pthread_join(sorter, NULL);
+	if(pthread_join(sorter, NULL) != 0) {
+		perror("failed to join sorting thread");
+	}
+	clear_list(&list);
 	pthread_mutex_destroy(&list_mutex);
 }
 

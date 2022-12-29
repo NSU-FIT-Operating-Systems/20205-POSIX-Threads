@@ -17,19 +17,20 @@ int add_string(List *list, char *str) {
 
 
 void sort(List *list) {
-	pthread_mutex_lock(&list_mutex);
 	for(int pos = 0; pos < list->size - 1; pos++) {
 		Item *item = list->begin;
 		for(int shift = pos; shift < list->size - 1; shift++) {
 			if(strcmp(item->str, item->next->str) > 0) {
+				pthread_mutex_lock(&list_mutex);
 				char *tmp = item->str;
 				item->str = item->next->str;
 				item->next->str = tmp;
+				pthread_mutex_unlock(&list_mutex);
 			}
+			pthread_testcancel();
 			item = item->next;
 		}
 	}
-	pthread_mutex_unlock(&list_mutex);
 }
 
 void print_list(const List *list) {
