@@ -16,7 +16,6 @@ typedef struct Item {
 
 typedef struct List {
 	Item *begin;
-	Item *end;
 	int size;
 } List;
 

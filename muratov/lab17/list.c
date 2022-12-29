@@ -1,21 +1,14 @@
 #include "list.h"
 
 int add_string(List *list, char *str) {
-	pthread_mutex_lock(&list_mutex);
 	Item *item = malloc(sizeof(char) * strlen(str) + 1);
 	if(item == NULL) {
 		perror("malloc: failed to allocate memory for new string item");
-		pthread_mutex_unlock(&list_mutex);
 		return 0;
 	}
 	item->str = str;
-	if(list->end == NULL) {
-		list->end = item;
-		item->next = NULL;
-	}
-	else {
-		item->next = list->begin;
-	}
+	pthread_mutex_lock(&list_mutex);
+	item->next = list->begin;
 	list->begin = item;
 	list->size++;
 	pthread_mutex_unlock(&list_mutex);
@@ -56,6 +49,6 @@ void clear_list(List *list) {
 		iter = next;
 	}
 	list->size = 0;
-	list->begin = list->end = NULL;
+	list->begin = NULL;
 	pthread_mutex_unlock(&list_mutex);
 }
