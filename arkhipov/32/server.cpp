@@ -17,7 +17,7 @@
 #include <string>
 
 
-#define CLIENT_QUEUE_SIZE (5)
+#define CLIENT_QUEUE_SIZE (30)
 #define POLL_TIMEOUT (1000)
 #define POLL_HOST_TIMEOUT (1000)
 #define URL_BUFF_SIZE (1024)
@@ -358,7 +358,7 @@ void* RunClient(void* arg) {
                     WaitContent(cache_item, send_size);
                 }
                 pthread_rwlock_rdlock(&cache_item->rwlock);
-                size_t send_iter = write(client_fd, cache_item->content, cache_item->size - send_size);
+                size_t send_iter = write(client_fd, cache_item->content + send_size, cache_item->size - send_size);
                 if (send_size == -1) {
                     fprintf(stderr, "Error while write to client\n");
                     break;
