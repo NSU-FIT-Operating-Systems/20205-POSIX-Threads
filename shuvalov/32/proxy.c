@@ -462,33 +462,27 @@ void* client_function(ssize_t client_fd) {
     int ret_val;
     while ((ret_val = receive_from_client(&client)) == RECEIVING && !stop);
     if (stop) {
-        free_client(&client);
         exit_routine();
         return (void*) EXIT_SUCCESS;
     }
     if (ret_val == CLOSE) {
-        free_client(&client);
         mark_completed();
         return (void*) EXIT_FAILURE;
     }
     ret_val = subscribe_client(&client);
     if (ret_val == CLOSE) {
-        free_client(&client);
         mark_completed();
         return (void*) EXIT_FAILURE;
     }
     while ((ret_val = send_to_client(&client)) == 0 && !stop);
     if (stop) {
-        free_client(&client);
         exit_routine();
         return (void*) EXIT_SUCCESS;
     }
     if (ret_val == -1) {
-        free_client(&client);
         mark_completed();
         return (void*) EXIT_FAILURE;
     }
-    free_client(&client);
     mark_completed();
     return (void*) EXIT_SUCCESS;
 }
