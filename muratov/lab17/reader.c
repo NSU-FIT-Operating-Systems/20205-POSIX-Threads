@@ -26,7 +26,10 @@ void clear_all(pthread_t sorter) {
 }
 
 int main() {
+	printf("Enter line \".\" to exit\n\n");
 	pthread_t sorter;
+	list.begin = NULL;
+	list.size = 0;
 
 	if(pthread_mutex_init(&list_mutex, NULL) != 0) {
 		perror("failed to init mutex");
