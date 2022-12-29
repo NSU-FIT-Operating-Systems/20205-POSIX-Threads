@@ -25,7 +25,7 @@
 #define INIT_FDS_SIZE 200
 #define USAGE "USAGE:\tproxy [IP PORT]\nWHERE:\tIP - IP address of proxy\n\tPORT - port of proxy\n"
 #define READ_BUFFER_SIZE (32 * 1024)
-#define WRITE_BUFFER_SIZE (32 * 1024)
+#define WRITE_BUFFER_SIZE (64 * 1024)
 #define CACHE_SIZE 10
 #define CLOSE (-1)
 #define RECEIVING 0
@@ -129,7 +129,7 @@ int receive_from_server(struct server* server) {
     if (to_read > READ_BUFFER_SIZE) {
         to_read = READ_BUFFER_SIZE;
     }
-    while ((return_value = read(server->fd, server->response->buf + server->response->buf_len,
+    while ((return_value = read_all(server->fd, server->response->buf + server->response->buf_len,
                                 to_read)) == -1 &&
            errno == EINTR);
     log_debug("\tReceive %zd bytes", return_value);
@@ -142,7 +142,7 @@ int receive_from_server(struct server* server) {
         close_server_and_subscribers(server);
         return 0;
     }
-    pthread_mutex_lock(&server->response->mutex);
+    pthread_rwlock_wrlock(&server->response->rwlock);
     server->response->prev_buf_len = server->response->buf_len;
     server->response->buf_len += return_value;
     if (server->response->buf_len == server->response->buf_size) {
@@ -150,7 +150,7 @@ int receive_from_server(struct server* server) {
         server->response->buf = (char*) realloc(server->response->buf, sizeof(char) * server->response->buf_size);
         if (server->response->buf == NULL) {
             log_error("realloc failed: %s", strerror(errno));
-            pthread_mutex_unlock(&server->response->mutex);
+            pthread_rwlock_unlock(&server->response->rwlock);
             close_server_and_subscribers(server);
             return -1;
         }
@@ -170,7 +170,7 @@ int receive_from_server(struct server* server) {
             return_value = get_header_value(&content_length, &content_length_len, "Content-Length",
                                             server->response->headers, server->response->num_headers);
             if (return_value == 2) {
-                pthread_mutex_unlock(&server->response->mutex);
+                pthread_rwlock_unlock(&server->response->rwlock);
                 close_server_and_subscribers(server);
                 return -1;
             }
@@ -179,7 +179,7 @@ int receive_from_server(struct server* server) {
                 return_value = buffer_to_string(content_length, content_length_len, &content_length_str);
                 free(content_length);
                 if (return_value != 0) {
-                    pthread_mutex_unlock(&server->response->mutex);
+                    pthread_rwlock_unlock(&server->response->rwlock);
                     close_server_and_subscribers(server);
                     return -1;
                 }
@@ -199,8 +199,15 @@ int receive_from_server(struct server* server) {
         }
     }
     log_debug("\tClients num %d", server->response->subscribers_count);
-    pthread_cond_broadcast(&server->response->cond);
-    pthread_mutex_unlock(&server->response->mutex);
+    return_value = write(server->response->new_data_fd, &server->response->subscribers_count,
+                         sizeof(server->response->subscribers_count));
+    if (return_value < 0) {
+        log_error("write to event new data: %s", strerror(errno));
+        close_server_and_subscribers(server);
+        pthread_rwlock_unlock(&server->response->rwlock);
+        return -1;
+    }
+    pthread_rwlock_unlock(&server->response->rwlock);
     if (server->response->buf_len == server->response->content_length + server->response->not_content_length) {
         close_server(server);
         return 1;
@@ -211,11 +218,11 @@ int receive_from_server(struct server* server) {
 void* server_function(struct server* server) {
     connect_to_server(server);
     int ret_val;
-    while((ret_val = send_to_server(server)) == 0);
+    while ((ret_val = send_to_server(server)) == 0);
     if (ret_val == -1) {
         return (void*) EXIT_FAILURE;
     }
-    while((ret_val = receive_from_server(server)) == 0);
+    while ((ret_val = receive_from_server(server)) == 0);
     if (ret_val == -1) {
         return (void*) EXIT_FAILURE;
     }
@@ -282,8 +289,7 @@ int subscribe_client(struct client* client) {
     }
     struct cache_node* cache_node = get(cache, url);
     if (cache_node != NULL && (cache_node->response->status == 200 || cache_node->response->status == -1)) {
-        cache_node->response->subscribers[cache_node->response->subscribers_count++] = client;
-        client->response = cache_node->response;
+        subscribe(client, &cache, cache_node - cache.nodes);
         log_debug("\tSubscribe to cache");
         free(url);
         return RESPONSE_IN_CACHE;
@@ -351,23 +357,39 @@ int subscribe_client(struct client* client) {
 }
 
 int send_to_client(struct client* client) {
-    pthread_mutex_lock(&client->response->mutex);
+    pthread_rwlock_rdlock(&client->response->rwlock);
     ssize_t return_value;
-    while (client->response->buf_len - client->bytes_written == 0) {
-        pthread_cond_wait(&client->response->cond, &client->response->mutex);
+//    log_debug("\trdlock");
+    log_debug("\t1 buf_len = %d, bytes_written = %d", client->response->buf_len, client->bytes_written);
+    if (client->response->buf_len - client->bytes_written == 0) {
+        log_debug("\tevent fd %d", client->response->new_data_fd);
+        unsigned long info;
+        pthread_rwlock_unlock(&client->response->rwlock);
+        return_value = read(client->response->new_data_fd, &info, sizeof(info));
+        log_debug("info %d", info);
+        if (return_value < 0) {
+            log_error("read event new data: %s", strerror(errno));
+            close_client(client);
+            return -1;
+        }
+        pthread_rwlock_rdlock(&client->response->rwlock);
     }
     size_t to_write = client->response->buf_len - client->bytes_written;
-    log_debug("\tbuf_len = %d, bytes_written = %d", client->response->buf_len, client->bytes_written);
+    log_debug("\t2 buf_len = %d, bytes_written = %d", client->response->buf_len, client->bytes_written);
     if (to_write > WRITE_BUFFER_SIZE) {
         to_write = WRITE_BUFFER_SIZE;
+    }
+    if (to_write == 0) {
+        pthread_rwlock_unlock(&client->response->rwlock);
+        return 0;
     }
     return_value = write(client->fd,
                          client->response->buf + client->bytes_written,
                          to_write);
     if (return_value < 0) {
         log_error("write to client: %s", strerror(errno));
-        close(client->fd);
-        free_client(client);
+        pthread_rwlock_unlock(&client->response->rwlock);
+        close_client(client);
         return -1;
     }
     log_debug("\tSend %zd bytes", return_value);
@@ -380,13 +402,11 @@ int send_to_client(struct client* client) {
             assert(client->cache_node >= 0 && client->cache_node < cache.size);
             clear_cache_node(&(cache.nodes[client->cache_node]));
         }
-        pthread_mutex_unlock(&client->response->mutex);
-        unsubscribe(client);
-        close(client->fd);
-        free_client(client);
+        pthread_rwlock_unlock(&client->response->rwlock);
+        close_client(client);
         return 1;
     }
-    pthread_mutex_unlock(&client->response->mutex);
+    pthread_rwlock_unlock(&client->response->rwlock);
     sched_yield();
     return 0;
 }

@@ -1,4 +1,4 @@
-.PHONY: all clean proxy
+.PHONY: all clean
 
 all: proxy
 

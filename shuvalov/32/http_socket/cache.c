@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <sys/eventfd.h>
 #include "cache.h"
 
 #define BUF_SIZE 4096
@@ -135,6 +136,15 @@ int init_cache_node(struct cache_node* cache_node) {
     if (err != 0) {
         return -1;
     }
+    pthread_rwlockattr_t rwlock_attr;
+    pthread_rwlockattr_init(&rwlock_attr);
+    pthread_rwlockattr_setkind_np(&rwlock_attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
+    err = pthread_rwlock_init(&cache_node->response->rwlock, &rwlock_attr);
+    if (err != 0) {
+        return -1;
+    }
+    pthread_rwlockattr_destroy(&rwlock_attr);
+    cache_node->response->new_data_fd = eventfd(0, EFD_SEMAPHORE);
     return 0;
 }
 

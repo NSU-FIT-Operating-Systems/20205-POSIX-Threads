@@ -16,11 +16,13 @@ struct request {
 struct response {
     pthread_mutex_t mutex;
     pthread_cond_t cond;
+    pthread_rwlock_t rwlock;
     struct client** subscribers;
     char* buf, * message;
     struct phr_header* headers;
     size_t buf_size, buf_len, prev_buf_len, message_len, num_headers, subscribers_max_size, headers_max_size;
-    int minor_version, status, subscribers_count, content_length, not_content_length;
+    unsigned long subscribers_count;
+    int minor_version, status, content_length, not_content_length, new_data_fd;
 };
 
 struct client {
