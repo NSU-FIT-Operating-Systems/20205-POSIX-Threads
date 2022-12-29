@@ -366,7 +366,6 @@ int send_to_client(struct client* client) {
         unsigned long info;
         pthread_rwlock_unlock(&client->response->rwlock);
         return_value = read(client->response->new_data_fd, &info, sizeof(info));
-        log_debug("info %d", info);
         if (return_value < 0) {
             log_error("read event new data: %s", strerror(errno));
             close_client(client);
@@ -451,14 +450,23 @@ int accept_client(int proxy_fd) {
 }
 
 int sigmask_init(void) {
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGINT | SIGPIPE);
-    int ret_val;
-    if ((ret_val = pthread_sigmask(SIG_BLOCK, &mask, NULL)) != 0) {
-        log_error("sigprocmask: %s", strerror(ret_val));
-        return -1;
-    }
+//    sigset_t mask;
+//    sigemptyset(&mask);
+//    sigaddset(&mask, SIGINT);
+//    int ret_val;
+//    if ((ret_val = pthread_sigmask(SIG_BLOCK, &mask, NULL)) != 0) {
+//        log_error("sigprocmask: %s", strerror(ret_val));
+//        return -1;
+//    }
+    struct sigaction new_actn, old_actn;
+    new_actn.sa_handler = SIG_IGN;
+    sigemptyset (&new_actn.sa_mask);
+    new_actn.sa_flags = 0;
+    sigaction (SIGPIPE, &new_actn, &old_actn);
+//    new_actn.sa_handler = SIG_BLOCK;
+//    sigemptyset (&new_actn.sa_mask);
+//    new_actn.sa_flags = 0;
+//    sigaction (SIGINT, &new_actn, &old_actn);
     return 0;
 }
 
