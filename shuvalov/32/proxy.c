@@ -506,7 +506,7 @@ int accept_client(int proxy_fd) {
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     pthread_t client;
-    ret_val = pthread_create(&client, NULL, (void* (*)(void*)) client_function, (void*) client_fd);
+    ret_val = pthread_create(&client, &attr, (void* (*)(void*)) client_function, (void*) client_fd);
     if (ret_val != 0) {
         log_error("pthread_create failed: %s", strerror(ret_val));
         return -1;
@@ -572,7 +572,7 @@ int parse_args(int argc, char* argv[]) {
     return -1;
 }
 
-void sig_handler(int signum){
+void sig_handler(int signum) {
     stop = 1;
     cleanup();
     pthread_exit((void*) EXIT_SUCCESS);
@@ -600,7 +600,7 @@ int main(int argc, char* argv[]) {
     if ((proxy_fd = proxy_fd_init()) < 0) {
         goto CLEANUP;
     }
-    signal(SIGINT,sig_handler);
+    signal(SIGINT, sig_handler);
     sigmask_init();
     pthread_mutex_init(&mutex, NULL);
     int iteration = 0;
