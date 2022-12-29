@@ -53,10 +53,14 @@ void cleanup(void) {
     pthread_mutex_unlock(&mutex);
 }
 
-void exit_routine(void) {
+void mark_completed() {
     pthread_mutex_lock(&mutex);
     completed_threads++;
     pthread_mutex_unlock(&mutex);
+}
+
+void exit_routine(void) {
+    mark_completed();
     cleanup();
 }
 
@@ -244,7 +248,7 @@ void* server_function(struct server* server) {
         return (void*) EXIT_SUCCESS;
     }
     if (ret_val == -1) {
-        exit_routine();
+        mark_completed();
         return (void*) EXIT_FAILURE;
     }
     while ((ret_val = receive_from_server(server)) == 0 && !stop);
@@ -253,10 +257,10 @@ void* server_function(struct server* server) {
         return (void*) EXIT_SUCCESS;
     }
     if (ret_val == -1) {
-        exit_routine();
+        mark_completed();
         return (void*) EXIT_FAILURE;
     }
-    exit_routine();
+    mark_completed();
     return (void*) EXIT_SUCCESS;
 }
 
@@ -464,13 +468,13 @@ void* client_function(ssize_t client_fd) {
     }
     if (ret_val == CLOSE) {
         free_client(&client);
-        exit_routine();
+        mark_completed();
         return (void*) EXIT_FAILURE;
     }
     ret_val = subscribe_client(&client);
     if (ret_val == CLOSE) {
         free_client(&client);
-        exit_routine();
+        mark_completed();
         return (void*) EXIT_FAILURE;
     }
     while ((ret_val = send_to_client(&client)) == 0 && !stop);
@@ -481,11 +485,11 @@ void* client_function(ssize_t client_fd) {
     }
     if (ret_val == -1) {
         free_client(&client);
-        exit_routine();
+        mark_completed();
         return (void*) EXIT_FAILURE;
     }
     free_client(&client);
-    exit_routine();
+    mark_completed();
     return (void*) EXIT_SUCCESS;
 }
 
