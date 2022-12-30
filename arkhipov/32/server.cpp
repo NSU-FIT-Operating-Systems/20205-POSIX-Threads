@@ -7,7 +7,6 @@
 #include <sys/types.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
-#include <fcntl.h>
 #include <pthread.h>
 #include <csignal>
 #include <poll.h>
@@ -17,7 +16,7 @@
 #include <string>
 
 
-#define CLIENT_QUEUE_SIZE (30)
+#define CLIENT_QUEUE_SIZE (100)
 #define POLL_TIMEOUT (1000)
 #define POLL_HOST_TIMEOUT (1000)
 #define URL_BUFF_SIZE (1024)
@@ -53,6 +52,11 @@ typedef struct {
     pthread_cond_t cv;
     pthread_mutex_t cvm;
 } CacheItem;
+
+typedef struct {
+    CacheItem* cache_item;
+    int client_fd;
+} WriterArg;
 
 // parsing constants
 const std::string headers_delimiter = "\r\n";
@@ -179,6 +183,67 @@ void DisconnectReader(CacheItem* cache_item, int status) {
     pthread_exit(nullptr);
 }
 
+void WaitContent(CacheItem* cache_item, size_t cur_size) {
+    pthread_mutex_lock(&cache_item->cvm);
+    while (cur_size >= cache_item->size && cache_item->status != CACHE_ITEM_STATUS_ERROR && cache_item->status != CACHE_ITEM_STATUS_FINISH)
+        pthread_cond_wait(&cache_item->cv, &cache_item->cvm);
+    pthread_mutex_unlock(&cache_item->cvm);
+}
+
+void* Writer(void* arg) {
+    printf("Send response to client\n");
+    WriterArg* writer_arg = (WriterArg*)arg;
+    CacheItem* cache_item = writer_arg->cache_item;
+    int client_fd = writer_arg->client_fd;
+    free(writer_arg);
+
+    struct pollfd poll_fd{};
+    poll_fd.fd = client_fd;
+    poll_fd.events = POLLOUT;
+
+    size_t send_size = 0;
+    while (running) {
+        poll_fd.revents = 0;
+        int poll_res = poll(&poll_fd, 1, POLL_HOST_TIMEOUT);
+
+        if (poll_res == 0) {
+            continue;
+        }
+
+        if (poll_res == -1 && errno != EINTR) {
+            fprintf(stderr, "Error while poll\n");
+            break;
+        }
+
+        if (poll_fd.revents & POLLOUT) {
+            if (cache_item->status == CACHE_ITEM_STATUS_FINISH && cache_item->size == send_size) {
+                break;
+            }
+            if (cache_item->status == CACHE_ITEM_STATUS_ERROR) {
+                break;
+            }
+            // wait for new content
+            if (cache_item->status != CACHE_ITEM_STATUS_FINISH) {
+                WaitContent(cache_item, send_size);
+            }
+            pthread_rwlock_rdlock(&cache_item->rwlock);
+            size_t send_iter = write(client_fd, cache_item->content + send_size, cache_item->size - send_size);
+            send_size += send_iter;
+            pthread_rwlock_unlock(&cache_item->rwlock);
+            if (send_iter == -1) {
+                fprintf(stderr, "Error while write to client\n");
+                break;
+            }
+            if (send_iter < 1) {
+                break;
+            }
+        }
+    }
+    printf("Disconnecting client\n");
+    close(client_fd);
+    pthread_exit(nullptr);
+}
+
 void* Reader(void* arg) {
     printf("Start reading from host\n");
     CacheItem* cache_item = (CacheItem*)arg;
@@ -230,6 +295,7 @@ void* Reader(void* arg) {
     poll_fd.fd = host_socket;
     poll_fd.events = POLLIN;
 
+    int status = CACHE_ITEM_STATUS_ERROR;
     while (running) {
         poll_fd.revents = 0;
         int poll_res = poll(&poll_fd, 1, POLL_HOST_TIMEOUT);
@@ -262,25 +328,17 @@ void* Reader(void* arg) {
             cache_item->size = read_count;
             pthread_cond_broadcast(&cache_item->cv);
             pthread_mutex_unlock(&cache_item->cvm);
-            if (read_iter == 0) {
-                close(host_socket);
-                DisconnectReader(cache_item, CACHE_ITEM_STATUS_FINISH);
+            if (read_iter < 1) {
+                break;
             }
         }
     }
     close(host_socket);
     pthread_mutex_lock(&cache_item->cvm);
-    cache_item->status = CACHE_ITEM_STATUS_ERROR;
+    cache_item->status = status;
     pthread_cond_broadcast(&cache_item->cv);
     pthread_mutex_unlock(&cache_item->cvm);
     pthread_exit(nullptr);
-}
-
-void WaitContent(CacheItem* cache_item, size_t cur_size) {
-    pthread_mutex_lock(&cache_item->cvm);
-    while (cur_size >= cache_item->size && cache_item->status != CACHE_ITEM_STATUS_ERROR && cache_item->status != CACHE_ITEM_STATUS_FINISH)
-        pthread_cond_wait(&cache_item->cv, &cache_item->cvm);
-    pthread_mutex_unlock(&cache_item->cvm);
 }
 
 void* RunClient(void* arg) {
@@ -311,7 +369,7 @@ void* RunClient(void* arg) {
             size_t read_bytes = read(client_fd, input_buffer, URL_BUFF_SIZE);
             if (read_bytes == -1) {
                 fprintf(stderr, "Error while read from client\n");
-                DisconnectClient(client);
+                pthread_exit(nullptr);
             }
             input_buffer[read_bytes] = '\0';
 
@@ -343,33 +401,17 @@ void* RunClient(void* arg) {
                 pthread_create(&cache_item->thread, nullptr, Reader, (void *)(cache_item));
                 pthread_detach(cache_item->thread);
             }
+            WriterArg* writer_arg = (WriterArg*)malloc(sizeof(WriterArg));
+            writer_arg->cache_item = cache_item;
+            writer_arg->client_fd = client_fd;
 
-            printf("Send response to client\n");
-            size_t send_size = 0;
-            while (true) {
-                if (cache_item->status == CACHE_ITEM_STATUS_FINISH && cache_item->size == send_size) {
-                    break;
-                }
-                if (cache_item->status == CACHE_ITEM_STATUS_ERROR) {
-                    break;
-                }
-                // wait for new content
-                if (cache_item->status != CACHE_ITEM_STATUS_FINISH) {
-                    WaitContent(cache_item, send_size);
-                }
-                pthread_rwlock_rdlock(&cache_item->rwlock);
-                size_t send_iter = write(client_fd, cache_item->content + send_size, cache_item->size - send_size);
-                if (send_size == -1) {
-                    fprintf(stderr, "Error while write to client\n");
-                    break;
-                }
-                send_size += send_iter;
-                pthread_rwlock_unlock(&cache_item->rwlock);
-            }
-            DisconnectClient(client);
+            pthread_t writer_thread;
+            pthread_create(&writer_thread, nullptr, Writer, (void *)(writer_arg));
+            pthread_detach(writer_thread);
+
+            pthread_exit(nullptr);
         }
     }
-    DisconnectClient(client);
     pthread_exit(nullptr);
 }
 
