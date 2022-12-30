@@ -1,0 +1,1 @@
+/usr/bin/gcc -g CMakeFiles/lab9.dir/main2.c.o -o lab9 

@@ -1,0 +1,1 @@
+/usr/bin/gcc  -pthread -g CMakeFiles/lab5.dir/main.c.o -o lab5 
