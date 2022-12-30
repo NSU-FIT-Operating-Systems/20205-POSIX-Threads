@@ -1,0 +1,18 @@
+#!/bin/bash
+rm output
+for ((i = 0; i < 5; i++))
+do
+	echo "===Launch $i===" >> output
+	./execute >> output
+	echo "*" >> output
+done
+
+#column -x output
+#rm ./output
+#cat output | pr -2 -t -s
+#awk -v col=5 '{if(NR%col){printf "%s ",$0 }else {printf "%s\n",$0}} ' output
+#perl -0ane 'BEGIN{$cols=5}END{for($i=0;$i<=$#F;$i++){print "$F[$i]\t"; print "\n" if((($i+1) % $cols) == 0)}}' output
+#pr -5 -t -s output
+#paste -s output
+#cat -n output | cut -f1 -d"*" | pr -T -5
+

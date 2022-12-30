@@ -1,0 +1,3 @@
+/mnt/d/Programming/C/Projects/OSLabs/lab9/cmake-build-debug/CMakeFiles/lab9.dir
+/mnt/d/Programming/C/Projects/OSLabs/lab9/cmake-build-debug/CMakeFiles/edit_cache.dir
+/mnt/d/Programming/C/Projects/OSLabs/lab9/cmake-build-debug/CMakeFiles/rebuild_cache.dir
