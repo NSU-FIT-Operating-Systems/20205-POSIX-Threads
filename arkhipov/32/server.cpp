@@ -12,7 +12,7 @@
 #include <poll.h>
 #include <cerrno>
 #include <vector>
-#include <map>
+#include <unordered_map>
 #include <string>
 
 
@@ -63,7 +63,7 @@ const std::string headers_delimiter = "\r\n";
 const std::string host_header_str = "Host: ";
 
 std::vector<Client*> clients;
-std::map<std::string, CacheItem*> cache;
+std::unordered_map<std::string, CacheItem*> cache;
 
 int running = 0;
 
@@ -361,7 +361,7 @@ void* RunClient(void* arg) {
 
         if (poll_res == -1 && errno != EINTR) {
             fprintf(stderr, "Error while poll\n");
-            break;
+            DisconnectClient(client);
         }
 
         if (poll_fd.revents & POLLIN) {
@@ -388,10 +388,11 @@ void* RunClient(void* arg) {
                 cache_item = (CacheItem*) malloc(sizeof (CacheItem));
                 if (cache_item == nullptr) {
                     fprintf(stderr, "Unable to allocate memory for cache item. close client");
+                    pthread_mutex_unlock(&cache_mutex);
                     DisconnectClient(client);
                 }
                 InitCacheItem(cache_item, input_buffer);
-                cache[request] = cache_item;
+                cache.insert({request, cache_item});
                 create_thread = true;
             }
             pthread_mutex_unlock(&cache_mutex);
@@ -409,7 +410,7 @@ void* RunClient(void* arg) {
             pthread_create(&writer_thread, nullptr, Writer, (void *)(writer_arg));
             pthread_detach(writer_thread);
 
-            pthread_exit(nullptr);
+            break;
         }
     }
     pthread_exit(nullptr);
