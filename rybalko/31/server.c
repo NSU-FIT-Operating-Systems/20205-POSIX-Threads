@@ -14,6 +14,7 @@
 #include <stdbool.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <time.h>
 
 #define POLL_TIMEOUT (10000)
 #define EMPTY (-1)
@@ -34,6 +35,8 @@ size_t CURRENT_HOSTS_AMOUNT = 8;
 size_t SERVER_FDS_AMOUNT = 16;
 size_t TOTAL_FDS_AMOUNT = 16 + SERVICE_FDS_AMOUNT;
 size_t CURRENT_POLL_FDS = 0;
+size_t MAX_CACHE = 0;
+size_t CURRENT_CACHE_SIZE = 0;
 
 int stop_fd = -1;
 
@@ -68,6 +71,8 @@ typedef struct Cache {
     size_t response_size;
     size_t response_idx;
 
+    time_t full_time;
+
     bool full;
     bool valid;
     bool successful_request;
@@ -96,6 +101,17 @@ size_t hash(char *str){
     return hash;
 }
 
+int ParseInt(char* str) {
+    char *endpoint;
+    int res = (int)strtol(str, &endpoint, 10);
+
+    if (*endpoint != '\0') {
+        fprintf(stderr, "Unable to parse: '%s' as int\n", str);
+        res = -1;
+    }
+    return res;
+}
+
 void UpdatePollFdsAmount(int deleted_idx) {
     if (deleted_idx == CURRENT_POLL_FDS) {
         CURRENT_POLL_FDS--;
@@ -108,6 +124,17 @@ void UpdatePollFdsAmount(int deleted_idx) {
             break;
         }
     }
+}
+
+size_t GetResponseLenght(char* header) {
+    int len_str_size = strlen("Content-Length: ");
+    char* len_start = strstr(header, "Content-Length: ");
+    char* len_end = strstr(len_start, "\r\n");
+    char tmp[URL_SIZE];
+    memcpy(tmp, len_start + len_str_size, len_end - len_start - len_str_size);
+    tmp[len_end - len_start - len_str_size] = '\0';
+    int lenght = ParseInt(tmp);
+    return lenght;
 }
 
 void DeleteFromPoll(int fd) {
@@ -341,7 +368,6 @@ void DisconnectClient(int idx) {
 
     if (clients[idx].request != NULL) {
         free(clients[idx].request);
-        // memset(clients[idx].request, 0, clients[idx].request_size);
         clients[idx].request = NULL;
         clients[idx].request_size = 0;
         clients[idx].last_written_idx = 0;
@@ -374,6 +400,7 @@ void InitCacheItem(int i) {
     cache[i].curr_subs = 0;
     cache[i].request_hash = -1;
     cache[i].host_idx = -1;
+    cache[i].full_time = -1;
     cache[i].full = false;
     cache[i].valid = false;
     cache[i].successful_request = false;
@@ -411,6 +438,7 @@ int TryToFindAtCache(char* request) {
     size_t request_hash = hash(request);
     for (int i = 0; i < CACHE_SIZE; ++i) {
         if (cache[i].valid && cache[i].request_hash == request_hash) {
+            cache[i].full_time = time(NULL);
             return i;
         }
     }
@@ -617,12 +645,25 @@ void DisconnectHost(int host_idx) {
     }
 }
 
+int GetOldestRecord() {
+    time_t max_timeout = time(NULL);
+    int res = -1;
+    for (int i = 0; i < CACHE_SIZE; ++i) {
+        if (cache[i].full_time < max_timeout && cache[i].full_time != -1) {
+            max_timeout = cache[i].full_time;
+            res = i;
+        }
+    }
+    return res;
+}
+
 void CleanCacheItem(int cache_idx) {
     if (cache_idx < 0 || cache_idx > CACHE_SIZE) {
         return;
     }
 
     cache[cache_idx].full = false;
+    cache[cache_idx].full_time = -1;
     cache[cache_idx].valid = false;
     cache[cache_idx].successful_request = false;
     cache[cache_idx].request_hash = -1;
@@ -659,15 +700,18 @@ void CleanCacheItem(int cache_idx) {
     }
 }
 
-int ParseInt(char* str) {
-    char *endpoint;
-    int res = (int)strtol(str, &endpoint, 10);
-
-    if (*endpoint != '\0') {
-        fprintf(stderr, "Unable to parse: '%s' as int\n", str);
-        res = -1;
+int FreeMemoryForNewCacheRecord(int needed_bytes) {
+    int oldest_record = GetOldestRecord();
+    while (MAX_CACHE - CURRENT_CACHE_SIZE < needed_bytes && oldest_record != -1) {
+        CURRENT_CACHE_SIZE -= cache[oldest_record].response_size;
+        CleanCacheItem(oldest_record);
+        oldest_record = GetOldestRecord();
     }
-    return res;
+
+    if (MAX_CACHE - CURRENT_CACHE_SIZE > needed_bytes) {
+        return 0;
+    }
+    return -1;
 }
 
 int ExtractUrl(char* part_url, char* full_url) {
@@ -776,7 +820,7 @@ void ReadFromClient(int idx) {
     }
 
     if (readed_bytes == 0) {
-        printf("Close connection for %d client\n", idx);
+        // printf("Close connection for %d client\n", idx);
         DisconnectClient(idx);
         return;
     }
@@ -894,6 +938,7 @@ void ReadFromHost(int idx) {
 
     if (readed_bytes == 0) {
         cache[cache_idx].full = true;
+        cache[cache_idx].full_time = time(NULL);
         cache[cache_idx].response_size = cache[cache_idx].response_idx;
         NotifySub(cache_idx, POLLIN | POLLOUT);
         DisconnectHost(idx);
@@ -901,6 +946,28 @@ void ReadFromHost(int idx) {
     }
 
     if (cache[cache_idx].response_size == 0) {
+        size_t content_len = GetResponseLenght(buf);
+        if (content_len == -1) {
+            fprintf(stderr, "Error header!\n");
+            DisconnectHost(idx);
+            return;
+        }
+        if (content_len > MAX_CACHE) {
+            printf("to big\n");
+            DisconnectHost(idx);
+            return;
+            //readThrow todo
+        }
+        if (content_len > MAX_CACHE - CURRENT_CACHE_SIZE) {
+            printf("here\n");
+            int err = FreeMemoryForNewCacheRecord(content_len);
+            if (err != 0) {
+                fprintf(stderr, "Error in allocating memory for %d host response!\n", idx);
+                DisconnectHost(idx);
+                return;
+            }
+        }
+        CURRENT_CACHE_SIZE += content_len;
         cache[cache_idx].response_size = BUFSIZ;
         cache[cache_idx].response = (char*)malloc(BUFSIZ);
         if (cache[cache_idx].response == NULL) {
@@ -979,8 +1046,8 @@ void AcceptClient(int listen_fd) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        printf("Bad number of args!\nUsage: %s <port>\n", argv[0]);
+    if (argc != 3) {
+        printf("Bad number of args!\nUsage: %s <port> <max cache in Mb>\n", argv[0]);
         return 1;
     }
 
@@ -989,6 +1056,8 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Invalid port number!\n");
         return 1;
     }
+
+    MAX_CACHE = ParseInt(argv[2]) * 1024 * 1024;
 
     InitServerFds();
 
