@@ -39,6 +39,7 @@ size_t MAX_CACHE = 0;
 size_t CURRENT_CACHE_SIZE = 0;
 
 int stop_fd = -1;
+int listen_fd = -1;
 
 typedef struct Client {
     int fd;
@@ -162,10 +163,14 @@ void FreeServerFds() {
 
     for (int i = 0; i < CURRENT_POLL_FDS; ++i) {
         if (server_fds[i].fd > 0) {
-            close(server_fds[i].fd);
+            if (close(server_fds[i].fd) < 0) {
+                perror("Error in close");
+            }
+            server_fds[i].fd = -1;
         }
     }
     free(server_fds);
+    CURRENT_POLL_FDS = -1;
 }
 
 void FreeClients() {
@@ -174,9 +179,13 @@ void FreeClients() {
     }
 
     for (int i = 0; i < CURRENT_CLIENTS_AMOUNT; ++i) {
-        free(clients[i].request);
-        DeleteFromPoll(clients[i].fd);
-        close(clients[i].fd);
+        if (clients[i].request != NULL) {
+            free(clients[i].request);
+            clients[i].request = NULL;
+        }
+        if (clients[i].fd != EMPTY) {
+            DeleteFromPoll(clients[i].fd);
+        }
     }
     free(clients);
 }
@@ -187,8 +196,9 @@ void FreeHosts() {
     }
 
     for (int i = 0; i < CURRENT_HOSTS_AMOUNT; ++i) {
-        DeleteFromPoll(hosts[i].fd);
-        close(hosts[i].fd);
+        if (hosts[i].fd != EMPTY) {
+            DeleteFromPoll(hosts[i].fd);
+        }
     }
     free(hosts);
 }
@@ -199,18 +209,27 @@ void FreeCache() {
     }
 
     for (int i = 0; i < CACHE_SIZE; ++i) {
-        free(cache[i].subscribers);
-        free(cache[i].response);
-        free(cache[i].request);
+        if (cache[i].subscribers != NULL) {
+            free(cache[i].subscribers);
+        }
+
+        if (cache[i].subscribers != NULL) {
+            free(cache[i].response);        
+        }
+
+        if (cache[i].subscribers != NULL) {
+            free(cache[i].request);
+        }
     }
     free(cache);
 }
 
 void CleanUp() {
+    printf("Clean up...\n");
     FreeClients();
     FreeHosts();
-    FreeCache();
     FreeServerFds();
+    FreeCache();
 }
 
 void InitHost(int i) {
@@ -820,7 +839,7 @@ void ReadFromClient(int idx) {
     }
 
     if (readed_bytes == 0) {
-        // printf("Close connection for %d client\n", idx);
+        printf("Close connection for %d client\n", idx);
         DisconnectClient(idx);
         return;
     }
@@ -1079,9 +1098,16 @@ int main(int argc, char *argv[]) {
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
     serv_addr.sin_port = htons(server_port);
 
-    int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd == -1) {
         perror("Error in SOCKET(2)");
+        FreeServerFds();
+        return 1;
+    }
+
+    int opt_val = 1;
+    if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(int)) == -1) {
+        perror("Error in SETSOCKOPT(2)");
         FreeServerFds();
         return 1;
     }
@@ -1089,13 +1115,13 @@ int main(int argc, char *argv[]) {
     if (bind(listen_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) != 0) {
         perror("Error in BIND(2)");
         FreeServerFds();
-        close(listen_fd);
+        return 1;
     }
 
     if (listen(listen_fd, CURRENT_CLIENTS_AMOUNT) != 0) {
         perror("Error in LISTEN(2)");
         FreeServerFds();
-        close(listen_fd);
+        return 1;
     }
 
     AddFdTOServerFds(listen_fd, POLLIN);
@@ -1119,7 +1145,7 @@ int main(int argc, char *argv[]) {
             int curr_fd = server_fds[i].fd;
             if (curr_fd == pipe_fds[0] && (server_fds[i].revents & POLLIN)) {
                 CleanUp();
-                return 0;
+                exit(0);
             }
 
             if (curr_fd == listen_fd && (server_fds[i].revents & POLLIN)) {
@@ -1161,7 +1187,5 @@ int main(int argc, char *argv[]) {
         }
     }
     CleanUp();
-    close(listen_fd);
-    close(pipe_fds[0]);
     return 0;
 }
