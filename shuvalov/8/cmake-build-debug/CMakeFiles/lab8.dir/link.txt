@@ -1,0 +1,1 @@
+/usr/bin/gcc  -pthread -g CMakeFiles/lab8.dir/main3.c.o -o lab8 
