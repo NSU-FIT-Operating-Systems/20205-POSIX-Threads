@@ -953,13 +953,10 @@ void ReadFromHost(int idx) {
             return;
         }
         if (content_len > MAX_CACHE) {
-            printf("to big\n");
-            DisconnectHost(idx);
+            CleanCacheItem(cache_idx);
             return;
-            //readThrow todo
         }
         if (content_len > MAX_CACHE - CURRENT_CACHE_SIZE) {
-            printf("here\n");
             int err = FreeMemoryForNewCacheRecord(content_len);
             if (err != 0) {
                 fprintf(stderr, "Error in allocating memory for %d host response!\n", idx);
